@@ -191,6 +191,241 @@ func TestConvertMissingPrdMd(t *testing.T) {
 	}
 }
 
+func TestHasProgress(t *testing.T) {
+	tests := []struct {
+		name     string
+		prd      *PRD
+		expected bool
+	}{
+		{
+			name:     "nil PRD",
+			prd:      nil,
+			expected: false,
+		},
+		{
+			name:     "empty PRD",
+			prd:      &PRD{},
+			expected: false,
+		},
+		{
+			name: "no progress",
+			prd: &PRD{
+				UserStories: []UserStory{
+					{ID: "US-001", Passes: false, InProgress: false},
+					{ID: "US-002", Passes: false, InProgress: false},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "one story passes",
+			prd: &PRD{
+				UserStories: []UserStory{
+					{ID: "US-001", Passes: true, InProgress: false},
+					{ID: "US-002", Passes: false, InProgress: false},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "one story in progress",
+			prd: &PRD{
+				UserStories: []UserStory{
+					{ID: "US-001", Passes: false, InProgress: true},
+					{ID: "US-002", Passes: false, InProgress: false},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "all stories pass",
+			prd: &PRD{
+				UserStories: []UserStory{
+					{ID: "US-001", Passes: true},
+					{ID: "US-002", Passes: true},
+				},
+			},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := HasProgress(tt.prd)
+			if result != tt.expected {
+				t.Errorf("HasProgress() = %v, want %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestMergeProgress(t *testing.T) {
+	t.Run("nil PRDs", func(t *testing.T) {
+		// Should not panic
+		MergeProgress(nil, nil)
+		MergeProgress(&PRD{}, nil)
+		MergeProgress(nil, &PRD{})
+	})
+
+	t.Run("matching story IDs - preserve status", func(t *testing.T) {
+		oldPRD := &PRD{
+			UserStories: []UserStory{
+				{ID: "US-001", Title: "Old Title 1", Passes: true, InProgress: false},
+				{ID: "US-002", Title: "Old Title 2", Passes: false, InProgress: true},
+				{ID: "US-003", Title: "Old Title 3", Passes: false, InProgress: false},
+			},
+		}
+		newPRD := &PRD{
+			UserStories: []UserStory{
+				{ID: "US-001", Title: "New Title 1", Passes: false, InProgress: false},
+				{ID: "US-002", Title: "New Title 2", Passes: false, InProgress: false},
+				{ID: "US-003", Title: "New Title 3", Passes: false, InProgress: false},
+			},
+		}
+
+		MergeProgress(oldPRD, newPRD)
+
+		// US-001 should have passes: true preserved
+		if !newPRD.UserStories[0].Passes {
+			t.Error("US-001 should have Passes: true after merge")
+		}
+		// US-002 should have inProgress: true preserved
+		if !newPRD.UserStories[1].InProgress {
+			t.Error("US-002 should have InProgress: true after merge")
+		}
+		// US-003 should remain unchanged (no progress)
+		if newPRD.UserStories[2].Passes || newPRD.UserStories[2].InProgress {
+			t.Error("US-003 should not have any progress after merge")
+		}
+	})
+
+	t.Run("new stories added - no progress", func(t *testing.T) {
+		oldPRD := &PRD{
+			UserStories: []UserStory{
+				{ID: "US-001", Passes: true},
+			},
+		}
+		newPRD := &PRD{
+			UserStories: []UserStory{
+				{ID: "US-001", Passes: false},
+				{ID: "US-002", Passes: false}, // New story
+			},
+		}
+
+		MergeProgress(oldPRD, newPRD)
+
+		// US-001 should have progress preserved
+		if !newPRD.UserStories[0].Passes {
+			t.Error("US-001 should have Passes: true after merge")
+		}
+		// US-002 is new, should have no progress
+		if newPRD.UserStories[1].Passes || newPRD.UserStories[1].InProgress {
+			t.Error("New story US-002 should not have any progress")
+		}
+	})
+
+	t.Run("removed stories are dropped", func(t *testing.T) {
+		oldPRD := &PRD{
+			UserStories: []UserStory{
+				{ID: "US-001", Passes: true},
+				{ID: "US-002", Passes: true}, // Will be removed
+			},
+		}
+		newPRD := &PRD{
+			UserStories: []UserStory{
+				{ID: "US-001", Passes: false},
+				// US-002 removed from new PRD
+			},
+		}
+
+		MergeProgress(oldPRD, newPRD)
+
+		// Only US-001 should exist
+		if len(newPRD.UserStories) != 1 {
+			t.Errorf("Expected 1 story, got %d", len(newPRD.UserStories))
+		}
+		if newPRD.UserStories[0].ID != "US-001" {
+			t.Errorf("Expected US-001, got %s", newPRD.UserStories[0].ID)
+		}
+		if !newPRD.UserStories[0].Passes {
+			t.Error("US-001 should have Passes: true after merge")
+		}
+	})
+
+	t.Run("mixed scenario - add, remove, keep", func(t *testing.T) {
+		oldPRD := &PRD{
+			UserStories: []UserStory{
+				{ID: "US-001", Passes: true},         // Keep with progress
+				{ID: "US-002", Passes: true},         // Removed
+				{ID: "US-003", InProgress: true},     // Keep with progress
+				{ID: "US-004", Passes: false},        // Keep without progress
+			},
+		}
+		newPRD := &PRD{
+			UserStories: []UserStory{
+				{ID: "US-001", Passes: false}, // Existing
+				{ID: "US-003", Passes: false}, // Existing
+				{ID: "US-004", Passes: false}, // Existing
+				{ID: "US-005", Passes: false}, // New
+			},
+		}
+
+		MergeProgress(oldPRD, newPRD)
+
+		// Verify each story
+		storyMap := make(map[string]*UserStory)
+		for i := range newPRD.UserStories {
+			storyMap[newPRD.UserStories[i].ID] = &newPRD.UserStories[i]
+		}
+
+		if s, ok := storyMap["US-001"]; !ok || !s.Passes {
+			t.Error("US-001 should exist with Passes: true")
+		}
+		if _, ok := storyMap["US-002"]; ok {
+			t.Error("US-002 should be removed")
+		}
+		if s, ok := storyMap["US-003"]; !ok || !s.InProgress {
+			t.Error("US-003 should exist with InProgress: true")
+		}
+		if s, ok := storyMap["US-004"]; !ok || s.Passes || s.InProgress {
+			t.Error("US-004 should exist without progress")
+		}
+		if s, ok := storyMap["US-005"]; !ok || s.Passes || s.InProgress {
+			t.Error("US-005 should exist without progress (new story)")
+		}
+	})
+
+	t.Run("reordered stories - preserves progress by ID", func(t *testing.T) {
+		oldPRD := &PRD{
+			UserStories: []UserStory{
+				{ID: "US-001", Priority: 1, Passes: true},
+				{ID: "US-002", Priority: 2, Passes: false},
+				{ID: "US-003", Priority: 3, InProgress: true},
+			},
+		}
+		newPRD := &PRD{
+			UserStories: []UserStory{
+				{ID: "US-003", Priority: 1, Passes: false}, // Moved to top
+				{ID: "US-001", Priority: 2, Passes: false}, // Moved down
+				{ID: "US-002", Priority: 3, Passes: false}, // Moved down
+			},
+		}
+
+		MergeProgress(oldPRD, newPRD)
+
+		// Verify progress is preserved regardless of order
+		if !newPRD.UserStories[0].InProgress {
+			t.Error("US-003 should have InProgress: true after merge")
+		}
+		if !newPRD.UserStories[1].Passes {
+			t.Error("US-001 should have Passes: true after merge")
+		}
+		if newPRD.UserStories[2].Passes || newPRD.UserStories[2].InProgress {
+			t.Error("US-002 should not have progress after merge")
+		}
+	})
+}
+
 // Note: Full integration tests for Convert() would require Claude to be available.
 // These tests focus on the pre-conversion validation logic.
 
