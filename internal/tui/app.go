@@ -297,7 +297,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Loop controls (work in both views)
 		case "s":
-			if a.state == StateReady || a.state == StatePaused {
+			if a.state == StateReady || a.state == StatePaused || a.state == StateError || a.state == StateStopped {
 				return a.startLoop()
 			}
 		case "p":

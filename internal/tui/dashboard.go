@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/minicodemonkey/chief/internal/prd"
 )
 
 const (
@@ -349,12 +350,28 @@ func (a *App) renderStoriesPanel(width, height int) string {
 
 // renderDetailsPanel renders the details panel for the selected story.
 func (a *App) renderDetailsPanel(width, height int) string {
+	// Check for empty PRD state first
+	if len(a.prd.UserStories) == 0 {
+		return a.renderEmptyPRDPanel(width, height)
+	}
+
+	// Check for error state - show error details instead of story details
+	if a.state == StateError {
+		return a.renderErrorPanel(width, height)
+	}
+
 	story := a.GetSelectedStory()
 	if story == nil {
 		return panelStyle.Width(width).Height(height).Render("No stories in PRD")
 	}
 
 	var content strings.Builder
+
+	// Show interrupted story warning at the top if applicable
+	if a.hasInterruptedStory() && a.state == StateReady {
+		content.WriteString(a.renderInterruptedWarning(width - 4))
+		content.WriteString("\n")
+	}
 
 	// Title
 	content.WriteString(titleStyle.Render(story.Title))
@@ -394,6 +411,128 @@ func (a *App) renderDetailsPanel(width, height int) string {
 	}
 
 	return panelStyle.Width(width).Height(height).Render(content.String())
+}
+
+// renderErrorPanel renders the error details panel when in error state.
+func (a *App) renderErrorPanel(width, height int) string {
+	var content strings.Builder
+
+	// Error header
+	errorIcon := statusFailedStyle.Render(IconFailed)
+	errorTitle := StateErrorStyle.Render("ERROR")
+	content.WriteString(fmt.Sprintf("%s %s\n", errorIcon, errorTitle))
+	content.WriteString(DividerStyle.Render(strings.Repeat("─", width-4)))
+	content.WriteString("\n\n")
+
+	// Error message
+	content.WriteString(labelStyle.Render("Error Details"))
+	content.WriteString("\n")
+	if a.err != nil {
+		errorMsg := a.err.Error()
+		content.WriteString(wrapText(errorMsg, width-4))
+	} else {
+		content.WriteString(lipgloss.NewStyle().Foreground(MutedColor).Render("Unknown error occurred"))
+	}
+	content.WriteString("\n\n")
+
+	// Log file hint
+	content.WriteString(DividerStyle.Render(strings.Repeat("─", width-4)))
+	content.WriteString("\n\n")
+	hintStyle := lipgloss.NewStyle().Foreground(WarningColor)
+	content.WriteString(hintStyle.Render("💡 Tip: Check claude.log in the PRD directory for full error details."))
+	content.WriteString("\n\n")
+
+	// Retry instructions
+	content.WriteString(labelStyle.Render("What to do"))
+	content.WriteString("\n")
+	content.WriteString("• Press ")
+	content.WriteString(ShortcutKeyStyle.Render("s"))
+	content.WriteString(" to retry\n")
+	content.WriteString("• Press ")
+	content.WriteString(ShortcutKeyStyle.Render("t"))
+	content.WriteString(" to view the log\n")
+	content.WriteString("• Press ")
+	content.WriteString(ShortcutKeyStyle.Render("q"))
+	content.WriteString(" to quit")
+
+	return panelStyle.Width(width).Height(height).Render(content.String())
+}
+
+// renderEmptyPRDPanel renders a panel when there are no stories in the PRD.
+func (a *App) renderEmptyPRDPanel(width, height int) string {
+	var content strings.Builder
+
+	// Centered empty state message
+	emptyIcon := lipgloss.NewStyle().Foreground(MutedColor).Render("📋")
+	emptyTitle := titleStyle.Render("No User Stories")
+	content.WriteString(fmt.Sprintf("%s %s\n", emptyIcon, emptyTitle))
+	content.WriteString(DividerStyle.Render(strings.Repeat("─", width-4)))
+	content.WriteString("\n\n")
+
+	// Instructions
+	content.WriteString(lipgloss.NewStyle().Foreground(TextColor).Render("This PRD has no user stories defined."))
+	content.WriteString("\n\n")
+
+	content.WriteString(labelStyle.Render("To add stories:"))
+	content.WriteString("\n")
+	content.WriteString("1. Edit the prd.json file directly, or\n")
+	content.WriteString("2. Use ")
+	content.WriteString(ShortcutKeyStyle.Render("chief init <name>"))
+	content.WriteString(" to create a new PRD with Claude's help\n")
+	content.WriteString("\n")
+
+	content.WriteString(DividerStyle.Render(strings.Repeat("─", width-4)))
+	content.WriteString("\n\n")
+
+	content.WriteString(SubtitleStyle.Render("PRD Location:"))
+	content.WriteString("\n")
+	content.WriteString(lipgloss.NewStyle().Foreground(PrimaryColor).Render(a.prdPath))
+
+	return panelStyle.Width(width).Height(height).Render(content.String())
+}
+
+// hasInterruptedStory returns true if there's a story with inProgress: true.
+func (a *App) hasInterruptedStory() bool {
+	for _, story := range a.prd.UserStories {
+		if story.InProgress {
+			return true
+		}
+	}
+	return false
+}
+
+// getInterruptedStory returns the interrupted story if one exists.
+func (a *App) getInterruptedStory() *prd.UserStory {
+	for i := range a.prd.UserStories {
+		if a.prd.UserStories[i].InProgress {
+			return &a.prd.UserStories[i]
+		}
+	}
+	return nil
+}
+
+// renderInterruptedWarning renders a warning banner for interrupted stories.
+func (a *App) renderInterruptedWarning(width int) string {
+	story := a.getInterruptedStory()
+	if story == nil {
+		return ""
+	}
+
+	var content strings.Builder
+
+	// Warning box
+	warningStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color("#3D3000")).
+		Foreground(WarningColor).
+		Padding(0, 1)
+
+	warningIcon := "⚠"
+	warningText := fmt.Sprintf("%s Interrupted Story: %s (%s)", warningIcon, story.ID, truncateWithEllipsis(story.Title, width-30))
+	content.WriteString(warningStyle.Width(width).Render(warningText))
+	content.WriteString("\n")
+	content.WriteString(lipgloss.NewStyle().Foreground(MutedColor).Render("A previous session was interrupted. Press 's' to resume."))
+
+	return content.String()
 }
 
 // renderProgressBar renders a progress bar showing completion percentage.
