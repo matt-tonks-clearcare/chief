@@ -2,15 +2,20 @@ package prd
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/minicodemonkey/chief/embed"
 )
+
+// spinner frames for the loading indicator
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 // ConvertOptions contains configuration for PRD conversion.
 type ConvertOptions struct {
@@ -67,13 +72,43 @@ func Convert(opts ConvertOptions) error {
 	)
 	cmd.Dir = opts.PRDDir
 
-	output, err := cmd.Output()
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			return fmt.Errorf("Claude conversion failed: %s", string(exitErr.Stderr))
-		}
-		return fmt.Errorf("Claude conversion failed: %w", err)
+	// Capture stdout and stderr
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	// Start the command
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start Claude: %w", err)
 	}
+
+	// Run spinner while waiting
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	frame := 0
+	ticker := time.NewTicker(80 * time.Millisecond)
+	defer ticker.Stop()
+
+waitLoop:
+	for {
+		select {
+		case err := <-done:
+			// Clear the spinner line
+			fmt.Print("\r\033[K")
+			if err != nil {
+				return fmt.Errorf("Claude conversion failed: %s", stderr.String())
+			}
+			break waitLoop
+		case <-ticker.C:
+			fmt.Printf("\r%s Converting prd.md to prd.json...", spinnerFrames[frame%len(spinnerFrames)])
+			frame++
+		}
+	}
+
+	output := stdout.Bytes()
 
 	// Clean up output (remove any markdown code blocks if present)
 	jsonContent := cleanJSONOutput(string(output))
@@ -99,9 +134,10 @@ func Convert(opts ConvertOptions) error {
 			choice = ChoiceOverwrite
 		} else {
 			// Prompt user for choice
-			choice, err = promptProgressConflict(existingPRD, &newPRD)
-			if err != nil {
-				return fmt.Errorf("failed to prompt for choice: %w", err)
+			var promptErr error
+			choice, promptErr = promptProgressConflict(existingPRD, &newPRD)
+			if promptErr != nil {
+				return fmt.Errorf("failed to prompt for choice: %w", promptErr)
 			}
 		}
 
