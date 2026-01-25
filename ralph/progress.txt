@@ -7,6 +7,7 @@
 - Claude's stream-json format: use `--output-format stream-json --verbose` with `-p` flag
 - Use json.RawMessage for partial JSON parsing when structure varies (e.g., content blocks)
 - Embed assets: use `embed/` package with //go:embed directive, use {{PLACEHOLDER}} syntax for substitution
+- File watching: use fsnotify for filesystem changes, send events through channels, only notify on status field changes
 
 ---
 
@@ -157,5 +158,30 @@
   - State transitions in Update() should return immediately with new commands for async operations
   - Context with cancel is essential for clean shutdown of the loop goroutine
   - Footer shortcuts should be context-sensitive to guide users to valid actions
+---
+
+## 2026-01-25 - US-008
+- What was implemented:
+  - Created internal/prd/watcher.go with Watcher struct for file watching using fsnotify
+  - Watcher monitors prd.json for filesystem changes and sends WatcherEvent through a channel
+  - Added hasStatusChanged() method to detect when a story's inProgress or passes field changes
+  - Integrated watcher with TUI app in internal/tui/app.go
+  - Added PRDUpdateMsg custom Bubble Tea message for PRD file changes
+  - Watcher starts on app Init() and listens for changes concurrently
+  - Handles file not found gracefully (sends error event, tries to re-watch)
+  - Updates story icons in real-time when file changes
+  - Created comprehensive integration tests for file watching functionality
+- Files changed:
+  - go.mod, go.sum (modified - added fsnotify dependency)
+  - internal/prd/watcher.go (new)
+  - internal/prd/watcher_test.go (new)
+  - internal/tui/app.go (modified - added watcher integration)
+- **Learnings for future iterations:**
+  - fsnotify requires explicit handling of file removal (try to re-add watch for potential recreation)
+  - Use WatcherEvent struct with both PRD and Error fields to communicate success/failure
+  - Only send PRD change events when status fields actually change (avoid noise from description edits)
+  - The hasStatusChanged() method maps old stories by ID for efficient comparison
+  - Watcher uses a buffered channel (10) to prevent blocking during rapid file changes
+  - Always stop the watcher on app quit to release file handles
 ---
 
