@@ -54,6 +54,9 @@ func (a *App) renderHeader() string {
 	stateStyle := GetStateStyle(a.state)
 	state := stateStyle.Render(fmt.Sprintf("[%s]", a.state.String()))
 
+	// Running PRDs indicator
+	runningIndicator := a.renderRunningIndicator()
+
 	// Iteration count
 	iteration := SubtitleStyle.Render(fmt.Sprintf("Iteration: %d", a.iteration))
 
@@ -62,7 +65,7 @@ func (a *App) renderHeader() string {
 	elapsedStr := SubtitleStyle.Render(fmt.Sprintf("Time: %s", formatDuration(elapsed)))
 
 	// Combine elements
-	leftPart := lipgloss.JoinHorizontal(lipgloss.Center, brand, "  ", state)
+	leftPart := lipgloss.JoinHorizontal(lipgloss.Center, brand, "  ", state, "  ", runningIndicator)
 	rightPart := lipgloss.JoinHorizontal(lipgloss.Center, iteration, "  ", elapsedStr)
 
 	// Create the full header line with proper spacing
@@ -73,6 +76,37 @@ func (a *App) renderHeader() string {
 	border := DividerStyle.Render(strings.Repeat("─", a.width))
 
 	return lipgloss.JoinVertical(lipgloss.Left, headerLine, border)
+}
+
+// renderRunningIndicator renders an indicator showing which PRDs are running.
+func (a *App) renderRunningIndicator() string {
+	if a.manager == nil {
+		return ""
+	}
+
+	runningPRDs := a.manager.GetRunningPRDs()
+	if len(runningPRDs) == 0 {
+		return ""
+	}
+
+	// Filter out the current PRD (it's already shown in the state)
+	var otherRunning []string
+	for _, name := range runningPRDs {
+		if name != a.prdName {
+			otherRunning = append(otherRunning, name)
+		}
+	}
+
+	if len(otherRunning) == 0 {
+		return ""
+	}
+
+	// Show indicator for other running PRDs
+	runningStyle := lipgloss.NewStyle().Foreground(PrimaryColor)
+	if len(otherRunning) == 1 {
+		return runningStyle.Render(fmt.Sprintf("▶ %s", otherRunning[0]))
+	}
+	return runningStyle.Render(fmt.Sprintf("▶ +%d PRDs", len(otherRunning)))
 }
 
 // renderFooter renders the footer with keyboard shortcuts, PRD name, and activity line.

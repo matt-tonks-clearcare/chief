@@ -7,18 +7,21 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/minicodemonkey/chief/internal/loop"
 	"github.com/minicodemonkey/chief/internal/prd"
 )
 
 // PRDEntry represents a PRD in the picker list.
 type PRDEntry struct {
-	Name       string   // Directory name (e.g., "main", "feature-x")
-	Path       string   // Full path to prd.json
-	PRD        *prd.PRD // Loaded PRD data
-	LoadError  error    // Error if PRD couldn't be loaded
-	Completed  int      // Number of completed stories
-	Total      int      // Total number of stories
-	InProgress bool     // Whether any story is in progress
+	Name       string         // Directory name (e.g., "main", "feature-x")
+	Path       string         // Full path to prd.json
+	PRD        *prd.PRD       // Loaded PRD data
+	LoadError  error          // Error if PRD couldn't be loaded
+	Completed  int            // Number of completed stories
+	Total      int            // Total number of stories
+	InProgress bool           // Whether any story is in progress
+	LoopState  loop.LoopState // Current loop state from manager
+	Iteration  int            // Current iteration if running
 }
 
 // PRDPicker manages the PRD picker modal state.
@@ -27,14 +30,15 @@ type PRDPicker struct {
 	selectedIndex int
 	width         int
 	height        int
-	basePath      string // Base path where .chief/prds/ is located
-	currentPRD    string // Name of the currently active PRD
-	inputMode     bool   // Whether we're in input mode for new PRD name
-	inputValue    string // The current input value for new PRD name
+	basePath      string        // Base path where .chief/prds/ is located
+	currentPRD    string        // Name of the currently active PRD
+	inputMode     bool          // Whether we're in input mode for new PRD name
+	inputValue    string        // The current input value for new PRD name
+	manager       *loop.Manager // Reference to the loop manager for status updates
 }
 
 // NewPRDPicker creates a new PRD picker.
-func NewPRDPicker(basePath string, currentPRDName string) *PRDPicker {
+func NewPRDPicker(basePath string, currentPRDName string, manager *loop.Manager) *PRDPicker {
 	p := &PRDPicker{
 		entries:       make([]PRDEntry, 0),
 		selectedIndex: 0,
@@ -42,9 +46,15 @@ func NewPRDPicker(basePath string, currentPRDName string) *PRDPicker {
 		currentPRD:    currentPRDName,
 		inputMode:     false,
 		inputValue:    "",
+		manager:       manager,
 	}
 	p.Refresh()
 	return p
+}
+
+// SetManager sets the loop manager reference.
+func (p *PRDPicker) SetManager(manager *loop.Manager) {
+	p.manager = manager
 }
 
 // Refresh reloads the list of PRDs from the .chief/prds/ directory.
@@ -69,8 +79,9 @@ func (p *PRDPicker) Refresh() {
 		prdPath := filepath.Join(prdsDir, name, "prd.json")
 
 		prdEntry := PRDEntry{
-			Name: name,
-			Path: prdPath,
+			Name:      name,
+			Path:      prdPath,
+			LoopState: loop.LoopStateReady,
 		}
 
 		// Try to load the PRD
@@ -87,6 +98,14 @@ func (p *PRDPicker) Refresh() {
 				if story.InProgress {
 					prdEntry.InProgress = true
 				}
+			}
+		}
+
+		// Get loop state from manager if available
+		if p.manager != nil {
+			if state, iteration, _ := p.manager.GetState(name); state != 0 || iteration != 0 {
+				prdEntry.LoopState = state
+				prdEntry.Iteration = iteration
 			}
 		}
 
@@ -251,7 +270,8 @@ func (p *PRDPicker) Render() string {
 	if p.inputMode {
 		shortcuts = "Enter: create  │  Esc: cancel"
 	} else {
-		shortcuts = "↑/k: up  │  ↓/j: down  │  Enter: select  │  n: new  │  Esc/l: close"
+		// Build context-sensitive shortcuts based on selected entry's state
+		shortcuts = p.buildFooterShortcuts()
 	}
 	footerStyle := lipgloss.NewStyle().
 		Foreground(MutedColor).
@@ -289,11 +309,11 @@ func (p *PRDPicker) renderEntry(entry PRDEntry, selected bool, width int) string
 		nameStyle = nameStyle.Bold(true).Foreground(TextBrightColor)
 	}
 	name := entry.Name
-	maxNameLen := 15
+	maxNameLen := 12
 	if len(name) > maxNameLen {
 		name = name[:maxNameLen-2] + ".."
 	}
-	line.WriteString(nameStyle.Render(fmt.Sprintf("%-15s", name)))
+	line.WriteString(nameStyle.Render(fmt.Sprintf("%-12s", name)))
 	line.WriteString(" ")
 
 	if entry.LoadError != nil {
@@ -302,7 +322,7 @@ func (p *PRDPicker) renderEntry(entry PRDEntry, selected bool, width int) string
 		line.WriteString(errorStyle.Render("[error]"))
 	} else {
 		// Progress bar
-		progressWidth := 10
+		progressWidth := 8
 		percentage := float64(0)
 		if entry.Total > 0 {
 			percentage = float64(entry.Completed) / float64(entry.Total) * 100
@@ -319,16 +339,9 @@ func (p *PRDPicker) renderEntry(entry PRDEntry, selected bool, width int) string
 		countStyle := lipgloss.NewStyle().Foreground(MutedColor)
 		line.WriteString(countStyle.Render(fmt.Sprintf("%d/%d", entry.Completed, entry.Total)))
 
-		// Status indicator
-		if entry.InProgress {
-			inProgressStyle := lipgloss.NewStyle().Foreground(PrimaryColor)
-			line.WriteString(" ")
-			line.WriteString(inProgressStyle.Render("●"))
-		} else if entry.Completed == entry.Total && entry.Total > 0 {
-			completeStyle := lipgloss.NewStyle().Foreground(SuccessColor)
-			line.WriteString(" ")
-			line.WriteString(completeStyle.Render("✓"))
-		}
+		// Loop state indicator
+		line.WriteString(" ")
+		line.WriteString(p.renderLoopStateIndicator(entry))
 	}
 
 	result := line.String()
@@ -339,6 +352,38 @@ func (p *PRDPicker) renderEntry(entry PRDEntry, selected bool, width int) string
 	}
 
 	return result
+}
+
+// renderLoopStateIndicator renders a visual indicator for the loop state.
+func (p *PRDPicker) renderLoopStateIndicator(entry PRDEntry) string {
+	switch entry.LoopState {
+	case loop.LoopStateRunning:
+		// Show spinning indicator with iteration count
+		runningStyle := lipgloss.NewStyle().Foreground(PrimaryColor).Bold(true)
+		return runningStyle.Render(fmt.Sprintf("▶ %d", entry.Iteration))
+	case loop.LoopStatePaused:
+		pausedStyle := lipgloss.NewStyle().Foreground(WarningColor)
+		return pausedStyle.Render("⏸")
+	case loop.LoopStateComplete:
+		completeStyle := lipgloss.NewStyle().Foreground(SuccessColor)
+		return completeStyle.Render("✓")
+	case loop.LoopStateError:
+		errorStyle := lipgloss.NewStyle().Foreground(ErrorColor)
+		return errorStyle.Render("✗")
+	case loop.LoopStateStopped:
+		stoppedStyle := lipgloss.NewStyle().Foreground(MutedColor)
+		return stoppedStyle.Render("■")
+	default:
+		// Ready state - show story status
+		if entry.InProgress {
+			inProgressStyle := lipgloss.NewStyle().Foreground(PrimaryColor)
+			return inProgressStyle.Render("●")
+		} else if entry.Completed == entry.Total && entry.Total > 0 {
+			completeStyle := lipgloss.NewStyle().Foreground(SuccessColor)
+			return completeStyle.Render("✓")
+		}
+		return ""
+	}
 }
 
 // renderInputMode renders the input mode for new PRD name.
@@ -373,6 +418,29 @@ func (p *PRDPicker) renderInputMode(width int) string {
 	content.WriteString(hintStyle.Render("Only letters, numbers, - and _ allowed"))
 
 	return content.String()
+}
+
+// buildFooterShortcuts builds context-sensitive shortcuts based on selected entry's state.
+func (p *PRDPicker) buildFooterShortcuts() string {
+	entry := p.GetSelectedEntry()
+	if entry == nil {
+		return "↑/k: up  │  ↓/j: down  │  n: new  │  Esc/l: close"
+	}
+
+	// Base shortcuts
+	base := "↑/k ↓/j: nav  │  Enter: select  │  n: new  │  Esc/l: close"
+
+	// Add state-specific controls
+	switch entry.LoopState {
+	case loop.LoopStateReady, loop.LoopStatePaused, loop.LoopStateStopped, loop.LoopStateError:
+		return "s: start  │  " + base
+	case loop.LoopStateRunning:
+		return "p: pause  │  x: stop  │  " + base
+	case loop.LoopStateComplete:
+		return base
+	default:
+		return "s: start  │  " + base
+	}
 }
 
 // centerModal centers the modal on the screen.

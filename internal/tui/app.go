@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -51,12 +50,19 @@ func (s AppState) String() string {
 
 // LoopEventMsg wraps a loop event for the Bubble Tea model.
 type LoopEventMsg struct {
-	Event loop.Event
+	PRDName string
+	Event   loop.Event
 }
 
 // LoopFinishedMsg is sent when the loop finishes (complete, paused, stopped, or error).
 type LoopFinishedMsg struct {
-	Err error
+	PRDName string
+	Err     error
+}
+
+// PRDCompletedMsg is sent when any PRD completes all stories.
+type PRDCompletedMsg struct {
+	PRDName string
 }
 
 // ViewMode represents which view is currently active.
@@ -81,11 +87,9 @@ type App struct {
 	height        int
 	err           error
 
-	// Loop control
-	loop       *loop.Loop
-	loopCtx    context.Context
-	loopCancel context.CancelFunc
-	maxIter    int
+	// Loop manager for parallel PRD execution
+	manager *loop.Manager
+	maxIter int
 
 	// Activity tracking
 	lastActivity string
@@ -100,6 +104,9 @@ type App struct {
 	// PRD picker
 	picker  *PRDPicker
 	baseDir string // Base directory for .chief/prds/
+
+	// Completion notification callback
+	onCompletion func(prdName string)
 }
 
 // NewApp creates a new App with the given PRD.
@@ -134,6 +141,15 @@ func NewAppWithOptions(prdPath string, maxIter int) (*App, error) {
 		baseDir, _ = os.Getwd()
 	}
 
+	// Create loop manager for parallel PRD execution
+	manager := loop.NewManager(maxIter)
+
+	// Register the initial PRD with the manager
+	manager.Register(prdName, prdPath)
+
+	// Create picker with manager reference
+	picker := NewPRDPicker(baseDir, prdName, manager)
+
 	return &App{
 		prd:           p,
 		prdPath:       prdPath,
@@ -142,12 +158,21 @@ func NewAppWithOptions(prdPath string, maxIter int) (*App, error) {
 		iteration:     0,
 		selectedIndex: 0,
 		maxIter:       maxIter,
+		manager:       manager,
 		watcher:       watcher,
 		viewMode:      ViewDashboard,
 		logViewer:     NewLogViewer(),
-		picker:        NewPRDPicker(baseDir, prdName),
+		picker:        picker,
 		baseDir:       baseDir,
 	}, nil
+}
+
+// SetCompletionCallback sets a callback that is called when any PRD completes.
+func (a *App) SetCompletionCallback(fn func(prdName string)) {
+	a.onCompletion = fn
+	if a.manager != nil {
+		a.manager.SetCompletionCallback(fn)
+	}
 }
 
 // Init initializes the App.
@@ -163,7 +188,22 @@ func (a App) Init() tea.Cmd {
 	return tea.Batch(
 		tea.EnterAltScreen,
 		a.listenForPRDChanges(),
+		a.listenForManagerEvents(),
 	)
+}
+
+// listenForManagerEvents listens for events from all managed loops.
+func (a *App) listenForManagerEvents() tea.Cmd {
+	if a.manager == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		event, ok := <-a.manager.Events()
+		if !ok {
+			return nil
+		}
+		return LoopEventMsg{PRDName: event.PRDName, Event: event.Event}
+	}
 }
 
 // Update handles messages and updates the model.
@@ -177,10 +217,19 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case LoopEventMsg:
-		return a.handleLoopEvent(msg.Event)
+		return a.handleLoopEvent(msg.PRDName, msg.Event)
 
 	case LoopFinishedMsg:
-		return a.handleLoopFinished(msg.Err)
+		return a.handleLoopFinished(msg.PRDName, msg.Err)
+
+	case PRDCompletedMsg:
+		// A PRD completed - trigger completion notification
+		if a.onCompletion != nil {
+			a.onCompletion(msg.PRDName)
+		}
+		// Refresh picker to show updated status
+		a.picker.Refresh()
+		return a, nil
 
 	case PRDUpdateMsg:
 		return a.handlePRDUpdate(msg)
@@ -193,7 +242,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		switch msg.String() {
 		case "q", "ctrl+c":
-			a.stopLoop()
+			a.stopAllLoops()
 			a.stopWatcher()
 			return a, tea.Quit
 
@@ -271,133 +320,193 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
-// startLoop starts the agent loop.
+// startLoop starts the agent loop for the current PRD.
 func (a App) startLoop() (tea.Model, tea.Cmd) {
-	a.state = StateRunning
-	a.startTime = time.Now()
-	a.lastActivity = "Starting loop..."
-
-	// Create a new loop instance
-	a.loop = loop.NewLoopWithEmbeddedPrompt(a.prdPath, a.maxIter)
-	a.loopCtx, a.loopCancel = context.WithCancel(context.Background())
-
-	// Start the loop in a goroutine and listen for events
-	return a, tea.Batch(
-		a.runLoop(),
-		a.listenForEvents(),
-	)
+	return a.startLoopForPRD(a.prdName)
 }
 
-// runLoop runs the loop in a goroutine and returns a command that signals completion.
-func (a *App) runLoop() tea.Cmd {
-	return func() tea.Msg {
-		err := a.loop.Run(a.loopCtx)
-		return LoopFinishedMsg{Err: err}
+// startLoopForPRD starts the agent loop for a specific PRD.
+func (a App) startLoopForPRD(prdName string) (tea.Model, tea.Cmd) {
+	// Check if this PRD is registered, if not register it
+	if instance := a.manager.GetInstance(prdName); instance == nil {
+		// Find the PRD path
+		prdPath := filepath.Join(a.baseDir, ".chief", "prds", prdName, "prd.json")
+		a.manager.Register(prdName, prdPath)
 	}
-}
 
-// listenForEvents listens for loop events and returns them as messages.
-func (a *App) listenForEvents() tea.Cmd {
-	return func() tea.Msg {
-		event, ok := <-a.loop.Events()
-		if !ok {
-			return nil
-		}
-		return LoopEventMsg{Event: event}
+	// Start the loop via manager
+	if err := a.manager.Start(prdName); err != nil {
+		a.lastActivity = "Error starting loop: " + err.Error()
+		return a, nil
 	}
+
+	// Update state if this is the current PRD
+	if prdName == a.prdName {
+		a.state = StateRunning
+		a.startTime = time.Now()
+		a.lastActivity = "Starting loop..."
+	} else {
+		a.lastActivity = "Started loop for: " + prdName
+	}
+
+	return a, nil
 }
 
 // pauseLoop sets the pause flag so the loop stops after the current iteration.
 func (a App) pauseLoop() (tea.Model, tea.Cmd) {
-	if a.loop != nil {
-		a.loop.Pause()
+	return a.pauseLoopForPRD(a.prdName)
+}
+
+// pauseLoopForPRD pauses the loop for a specific PRD.
+func (a App) pauseLoopForPRD(prdName string) (tea.Model, tea.Cmd) {
+	if a.manager != nil {
+		a.manager.Pause(prdName)
 	}
-	a.lastActivity = "Pausing after current iteration..."
+	if prdName == a.prdName {
+		a.lastActivity = "Pausing after current iteration..."
+	} else {
+		a.lastActivity = "Pausing " + prdName + " after current iteration..."
+	}
 	return a, nil
 }
 
-// stopLoop stops the loop immediately.
+// stopLoop stops the loop for the current PRD immediately.
 func (a *App) stopLoop() {
-	if a.loop != nil {
-		a.loop.Stop()
-	}
-	if a.loopCancel != nil {
-		a.loopCancel()
+	a.stopLoopForPRD(a.prdName)
+}
+
+// stopLoopForPRD stops the loop for a specific PRD immediately.
+func (a *App) stopLoopForPRD(prdName string) {
+	if a.manager != nil {
+		a.manager.Stop(prdName)
 	}
 }
 
 // stopLoopAndUpdate stops the loop and updates the state.
 func (a App) stopLoopAndUpdate() (tea.Model, tea.Cmd) {
-	a.stopLoop()
-	a.state = StateStopped
-	a.lastActivity = "Stopped"
+	return a.stopLoopAndUpdateForPRD(a.prdName)
+}
+
+// stopLoopAndUpdateForPRD stops the loop for a specific PRD and updates state.
+func (a App) stopLoopAndUpdateForPRD(prdName string) (tea.Model, tea.Cmd) {
+	a.stopLoopForPRD(prdName)
+	if prdName == a.prdName {
+		a.state = StateStopped
+		a.lastActivity = "Stopped"
+	} else {
+		a.lastActivity = "Stopped " + prdName
+	}
 	return a, nil
 }
 
-// handleLoopEvent handles events from the loop.
-func (a App) handleLoopEvent(event loop.Event) (tea.Model, tea.Cmd) {
-	a.iteration = event.Iteration
+// stopAllLoops stops all running loops.
+func (a *App) stopAllLoops() {
+	if a.manager != nil {
+		a.manager.StopAll()
+	}
+}
 
-	// Add event to log viewer
-	a.logViewer.AddEvent(event)
+// handleLoopEvent handles events from the manager.
+func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.Cmd) {
+	// Only update iteration and log if this is the currently viewed PRD
+	isCurrentPRD := prdName == a.prdName
+
+	if isCurrentPRD {
+		a.iteration = event.Iteration
+		// Add event to log viewer
+		a.logViewer.AddEvent(event)
+	}
 
 	switch event.Type {
 	case loop.EventIterationStart:
-		a.lastActivity = "Starting iteration..."
+		if isCurrentPRD {
+			a.lastActivity = "Starting iteration..."
+		}
 	case loop.EventAssistantText:
-		// Truncate long text for activity display
-		text := event.Text
-		if len(text) > 100 {
-			text = text[:97] + "..."
+		if isCurrentPRD {
+			// Truncate long text for activity display
+			text := event.Text
+			if len(text) > 100 {
+				text = text[:97] + "..."
+			}
+			a.lastActivity = text
 		}
-		a.lastActivity = text
 	case loop.EventToolStart:
-		a.lastActivity = "Running tool: " + event.Tool
+		if isCurrentPRD {
+			a.lastActivity = "Running tool: " + event.Tool
+		}
 	case loop.EventToolResult:
-		a.lastActivity = "Tool completed"
+		if isCurrentPRD {
+			a.lastActivity = "Tool completed"
+		}
 	case loop.EventStoryStarted:
-		a.lastActivity = "Working on: " + event.StoryID
+		if isCurrentPRD {
+			a.lastActivity = "Working on: " + event.StoryID
+		}
 	case loop.EventComplete:
-		a.state = StateComplete
-		a.lastActivity = "All stories complete!"
+		if isCurrentPRD {
+			a.state = StateComplete
+			a.lastActivity = "All stories complete!"
+		}
+		// Trigger completion callback for any PRD
+		if a.onCompletion != nil {
+			a.onCompletion(prdName)
+		}
 	case loop.EventMaxIterationsReached:
-		a.state = StatePaused
-		a.lastActivity = "Max iterations reached"
+		if isCurrentPRD {
+			a.state = StatePaused
+			a.lastActivity = "Max iterations reached"
+		}
 	case loop.EventError:
-		a.state = StateError
-		a.err = event.Err
-		if event.Err != nil {
-			a.lastActivity = "Error: " + event.Err.Error()
+		if isCurrentPRD {
+			a.state = StateError
+			a.err = event.Err
+			if event.Err != nil {
+				a.lastActivity = "Error: " + event.Err.Error()
+			}
 		}
 	}
 
-	// Reload PRD to reflect any changes made by Claude
-	if p, err := prd.LoadPRD(a.prdPath); err == nil {
-		a.prd = p
+	// Reload PRD if this is the current one to reflect any changes made by Claude
+	if isCurrentPRD {
+		if p, err := prd.LoadPRD(a.prdPath); err == nil {
+			a.prd = p
+		}
 	}
 
-	// Continue listening for events if running
-	if a.state == StateRunning {
-		return a, a.listenForEvents()
-	}
-
-	return a, nil
+	// Continue listening for manager events
+	return a, a.listenForManagerEvents()
 }
 
-// handleLoopFinished handles when the loop finishes.
-func (a App) handleLoopFinished(err error) (tea.Model, tea.Cmd) {
-	if err != nil && a.state != StateStopped {
-		a.state = StateError
-		a.err = err
-		a.lastActivity = "Error: " + err.Error()
-	} else if a.loop != nil && a.loop.IsPaused() {
-		a.state = StatePaused
-		a.lastActivity = "Paused"
-	}
+// handleLoopFinished handles when a loop finishes.
+func (a App) handleLoopFinished(prdName string, err error) (tea.Model, tea.Cmd) {
+	// Only update state if this is the current PRD
+	if prdName == a.prdName {
+		// Get the actual state from the manager
+		if state, _, _ := a.manager.GetState(prdName); state != 0 {
+			switch state {
+			case loop.LoopStateError:
+				a.state = StateError
+				a.err = err
+				if err != nil {
+					a.lastActivity = "Error: " + err.Error()
+				}
+			case loop.LoopStatePaused:
+				a.state = StatePaused
+				a.lastActivity = "Paused"
+			case loop.LoopStateStopped:
+				a.state = StateStopped
+				a.lastActivity = "Stopped"
+			case loop.LoopStateComplete:
+				a.state = StateComplete
+				a.lastActivity = "All stories complete!"
+			}
+		}
 
-	// Reload PRD to reflect any changes
-	if p, err := prd.LoadPRD(a.prdPath); err == nil {
-		a.prd = p
+		// Reload PRD to reflect any changes
+		if p, err := prd.LoadPRD(a.prdPath); err == nil {
+			a.prd = p
+		}
 	}
 
 	return a, nil
@@ -439,6 +548,8 @@ func (a App) handlePickerKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 						UserStories: []prd.UserStory{},
 					}
 					if err := newPRD.Save(newPRDPath); err == nil {
+						// Register with manager
+						a.manager.Register(name, newPRDPath)
 						// Switch to the new PRD
 						return a.switchToPRD(name, newPRDPath)
 					}
@@ -464,14 +575,16 @@ func (a App) handlePickerKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.viewMode = ViewDashboard
 		return a, nil
 	case "q", "ctrl+c":
-		a.stopLoop()
+		a.stopAllLoops()
 		a.stopWatcher()
 		return a, tea.Quit
 	case "up", "k":
 		a.picker.MoveUp()
+		a.picker.Refresh() // Refresh to get latest state
 		return a, nil
 	case "down", "j":
 		a.picker.MoveDown()
+		a.picker.Refresh() // Refresh to get latest state
 		return a, nil
 	case "enter":
 		entry := a.picker.GetSelectedEntry()
@@ -482,17 +595,47 @@ func (a App) handlePickerKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "n":
 		a.picker.StartInputMode()
 		return a, nil
+
+	// Loop controls for the SELECTED PRD (not current)
+	case "s":
+		entry := a.picker.GetSelectedEntry()
+		if entry != nil && entry.LoadError == nil {
+			state := entry.LoopState
+			if state == loop.LoopStateReady || state == loop.LoopStatePaused ||
+				state == loop.LoopStateStopped || state == loop.LoopStateError {
+				model, cmd := a.startLoopForPRD(entry.Name)
+				a.picker.Refresh()
+				return model, cmd
+			}
+		}
+		return a, nil
+	case "p":
+		entry := a.picker.GetSelectedEntry()
+		if entry != nil && entry.LoopState == loop.LoopStateRunning {
+			model, cmd := a.pauseLoopForPRD(entry.Name)
+			a.picker.Refresh()
+			return model, cmd
+		}
+		return a, nil
+	case "x":
+		entry := a.picker.GetSelectedEntry()
+		if entry != nil {
+			state := entry.LoopState
+			if state == loop.LoopStateRunning || state == loop.LoopStatePaused {
+				model, cmd := a.stopLoopAndUpdateForPRD(entry.Name)
+				a.picker.Refresh()
+				return model, cmd
+			}
+		}
+		return a, nil
 	}
 
 	return a, nil
 }
 
-// switchToPRD switches to a different PRD.
+// switchToPRD switches to a different PRD (view only - does not stop other loops).
 func (a App) switchToPRD(name, prdPath string) (tea.Model, tea.Cmd) {
-	// Stop current loop if running
-	a.stopLoop()
-
-	// Stop current watcher
+	// Stop current watcher (but NOT the loop - it can keep running)
 	a.stopWatcher()
 
 	// Load the new PRD
@@ -501,6 +644,11 @@ func (a App) switchToPRD(name, prdPath string) (tea.Model, tea.Cmd) {
 		a.lastActivity = "Error loading PRD: " + err.Error()
 		a.viewMode = ViewDashboard
 		return a, nil
+	}
+
+	// Register with manager if not already registered
+	if instance := a.manager.GetInstance(name); instance == nil {
+		a.manager.Register(name, prdPath)
 	}
 
 	// Create new watcher for the new PRD
@@ -514,19 +662,43 @@ func (a App) switchToPRD(name, prdPath string) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// Get the state from the manager for this PRD
+	loopState, iteration, loopErr := a.manager.GetState(name)
+	appState := StateReady
+	switch loopState {
+	case loop.LoopStateRunning:
+		appState = StateRunning
+	case loop.LoopStatePaused:
+		appState = StatePaused
+	case loop.LoopStateStopped:
+		appState = StateStopped
+	case loop.LoopStateComplete:
+		appState = StateComplete
+	case loop.LoopStateError:
+		appState = StateError
+	}
+
 	// Update app state
 	a.prd = newPRD
 	a.prdPath = prdPath
 	a.prdName = name
 	a.selectedIndex = 0
-	a.state = StateReady
-	a.iteration = 0
-	a.startTime = time.Time{}
+	a.state = appState
+	a.iteration = iteration
+	a.err = loopErr
+	if appState == StateRunning {
+		// Keep the existing start time if running
+		if instance := a.manager.GetInstance(name); instance != nil {
+			a.startTime = instance.StartTime
+		}
+	} else {
+		a.startTime = time.Time{}
+	}
 	a.lastActivity = "Switched to PRD: " + name
 	a.viewMode = ViewDashboard
 	a.picker.SetCurrentPRD(name)
 
-	// Clear log viewer
+	// Clear log viewer (each PRD has its own log)
 	a.logViewer.Clear()
 
 	// Return with new watcher listener
