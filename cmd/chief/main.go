@@ -5,39 +5,25 @@ import (
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/minicodemonkey/chief/internal/tui"
 )
 
-type model struct {
-	message string
-}
-
-func initialModel() model {
-	return model{
-		message: "Hello World from Chief!",
-	}
-}
-
-func (m model) Init() tea.Cmd {
-	return nil
-}
-
-func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "q", "ctrl+c":
-			return m, tea.Quit
-		}
-	}
-	return m, nil
-}
-
-func (m model) View() string {
-	return fmt.Sprintf("\n  %s\n\n  Press 'q' to quit.\n\n", m.message)
-}
-
 func main() {
-	p := tea.NewProgram(initialModel())
+	// For now, use a default PRD path (will be configurable via CLI flags in US-022)
+	prdPath := ".chief/prds/main/prd.json"
+
+	// Check for command-line argument for PRD path
+	if len(os.Args) > 1 {
+		prdPath = os.Args[1]
+	}
+
+	app, err := tui.NewApp(prdPath)
+	if err != nil {
+		fmt.Printf("Error loading PRD: %v\n", err)
+		os.Exit(1)
+	}
+
+	p := tea.NewProgram(app, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Error running program: %v\n", err)
 		os.Exit(1)

@@ -1,0 +1,307 @@
+package tui
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/charmbracelet/lipgloss"
+)
+
+const (
+	// Layout constants
+	minWidth         = 80
+	storiesPanelPct  = 35 // Stories panel takes 35% of width
+	detailsPanelPct  = 65 // Details panel takes 65% of width
+	headerHeight     = 3
+	footerHeight     = 2
+	progressBarWidth = 20
+)
+
+// renderDashboard renders the full dashboard view.
+func (a *App) renderDashboard() string {
+	if a.width == 0 || a.height == 0 {
+		return "Loading..."
+	}
+
+	header := a.renderHeader()
+	footer := a.renderFooter()
+
+	// Calculate content area height
+	contentHeight := a.height - headerHeight - footerHeight - 2 // -2 for panel borders
+
+	// Render panels
+	storiesWidth := (a.width * storiesPanelPct / 100) - 2
+	detailsWidth := a.width - storiesWidth - 4 // -4 for borders and gap
+
+	storiesPanel := a.renderStoriesPanel(storiesWidth, contentHeight)
+	detailsPanel := a.renderDetailsPanel(detailsWidth, contentHeight)
+
+	// Join panels horizontally
+	content := lipgloss.JoinHorizontal(lipgloss.Top, storiesPanel, detailsPanel)
+
+	// Stack header, content, and footer
+	return lipgloss.JoinVertical(lipgloss.Left, header, content, footer)
+}
+
+// renderHeader renders the header with branding, state, iteration, and elapsed time.
+func (a *App) renderHeader() string {
+	// Branding
+	brand := headerStyle.Render("chief")
+
+	// State indicator
+	stateStyle := lipgloss.NewStyle().Bold(true)
+	switch a.state {
+	case StateRunning:
+		stateStyle = stateStyle.Foreground(primaryColor)
+	case StatePaused:
+		stateStyle = stateStyle.Foreground(warningColor)
+	case StateComplete:
+		stateStyle = stateStyle.Foreground(successColor)
+	case StateError:
+		stateStyle = stateStyle.Foreground(errorColor)
+	default:
+		stateStyle = stateStyle.Foreground(mutedColor)
+	}
+	state := stateStyle.Render(fmt.Sprintf("[%s]", a.state.String()))
+
+	// Iteration count
+	iteration := lipgloss.NewStyle().Foreground(mutedColor).
+		Render(fmt.Sprintf("Iteration: %d", a.iteration))
+
+	// Elapsed time
+	elapsed := a.GetElapsedTime()
+	elapsedStr := lipgloss.NewStyle().Foreground(mutedColor).
+		Render(fmt.Sprintf("Time: %s", formatDuration(elapsed)))
+
+	// Combine elements
+	leftPart := lipgloss.JoinHorizontal(lipgloss.Center, brand, "  ", state)
+	rightPart := lipgloss.JoinHorizontal(lipgloss.Center, iteration, "  ", elapsedStr)
+
+	// Create the full header line with proper spacing
+	spacing := strings.Repeat(" ", max(0, a.width-lipgloss.Width(leftPart)-lipgloss.Width(rightPart)-2))
+	headerLine := lipgloss.JoinHorizontal(lipgloss.Center, leftPart, spacing, rightPart)
+
+	// Add a border below
+	border := lipgloss.NewStyle().Foreground(borderColor).Render(strings.Repeat("─", a.width))
+
+	return lipgloss.JoinVertical(lipgloss.Left, headerLine, border)
+}
+
+// renderFooter renders the footer with keyboard shortcuts and PRD name.
+func (a *App) renderFooter() string {
+	// Keyboard shortcuts
+	shortcuts := []string{
+		"↑/k: up",
+		"↓/j: down",
+		"q: quit",
+	}
+	shortcutsStr := footerStyle.Render(strings.Join(shortcuts, "  │  "))
+
+	// PRD name
+	prdInfo := footerStyle.Render(fmt.Sprintf("PRD: %s", a.prdName))
+
+	// Create footer line with proper spacing
+	spacing := strings.Repeat(" ", max(0, a.width-lipgloss.Width(shortcutsStr)-lipgloss.Width(prdInfo)-2))
+	footerLine := lipgloss.JoinHorizontal(lipgloss.Center, shortcutsStr, spacing, prdInfo)
+
+	// Add border above
+	border := lipgloss.NewStyle().Foreground(borderColor).Render(strings.Repeat("─", a.width))
+
+	return lipgloss.JoinVertical(lipgloss.Left, border, footerLine)
+}
+
+// renderStoriesPanel renders the stories list panel.
+func (a *App) renderStoriesPanel(width, height int) string {
+	var content strings.Builder
+
+	// Panel title
+	title := labelStyle.Render("Stories")
+	content.WriteString(title)
+	content.WriteString("\n")
+	content.WriteString(strings.Repeat("─", width-2))
+	content.WriteString("\n")
+
+	// Story list
+	listHeight := height - 5 // Account for title, border, and progress bar
+	for i, story := range a.prd.UserStories {
+		if i >= listHeight {
+			// Show indicator that there are more stories
+			moreStyle := lipgloss.NewStyle().Foreground(mutedColor)
+			content.WriteString(moreStyle.Render(fmt.Sprintf("... and %d more", len(a.prd.UserStories)-i)))
+			break
+		}
+
+		icon := GetStatusIcon(story.Passes, story.InProgress)
+
+		// Truncate title to fit
+		maxTitleLen := width - 12 // Account for icon, ID, and spacing
+		displayTitle := story.Title
+		if len(displayTitle) > maxTitleLen {
+			displayTitle = displayTitle[:maxTitleLen-3] + "..."
+		}
+
+		line := fmt.Sprintf("%s %s %s", icon, story.ID, displayTitle)
+
+		if i == a.selectedIndex {
+			line = selectedStyle.Width(width - 2).Render(line)
+		}
+
+		content.WriteString(line)
+		content.WriteString("\n")
+	}
+
+	// Pad remaining space
+	linesWritten := min(len(a.prd.UserStories), listHeight) + 2 // +2 for title and divider
+	for i := linesWritten; i < height-3; i++ {
+		content.WriteString("\n")
+	}
+
+	// Progress bar
+	content.WriteString(strings.Repeat("─", width-2))
+	content.WriteString("\n")
+	progressBar := a.renderProgressBar(width - 4)
+	content.WriteString(progressBar)
+
+	return panelStyle.Width(width).Height(height).Render(content.String())
+}
+
+// renderDetailsPanel renders the details panel for the selected story.
+func (a *App) renderDetailsPanel(width, height int) string {
+	story := a.GetSelectedStory()
+	if story == nil {
+		return panelStyle.Width(width).Height(height).Render("No stories in PRD")
+	}
+
+	var content strings.Builder
+
+	// Title
+	content.WriteString(titleStyle.Render(story.Title))
+	content.WriteString("\n\n")
+
+	// Status and Priority
+	statusIcon := GetStatusIcon(story.Passes, story.InProgress)
+	statusText := "Pending"
+	if story.Passes {
+		statusText = "Passed"
+	} else if story.InProgress {
+		statusText = "In Progress"
+	}
+	content.WriteString(fmt.Sprintf("%s %s  │  Priority: %d\n", statusIcon, statusText, story.Priority))
+	content.WriteString(strings.Repeat("─", width-4))
+	content.WriteString("\n\n")
+
+	// Description
+	content.WriteString(labelStyle.Render("Description"))
+	content.WriteString("\n")
+	content.WriteString(wrapText(story.Description, width-4))
+	content.WriteString("\n\n")
+
+	// Acceptance Criteria
+	content.WriteString(labelStyle.Render("Acceptance Criteria"))
+	content.WriteString("\n")
+	for _, criterion := range story.AcceptanceCriteria {
+		wrapped := wrapText("• "+criterion, width-6)
+		content.WriteString(wrapped)
+		content.WriteString("\n")
+	}
+
+	return panelStyle.Width(width).Height(height).Render(content.String())
+}
+
+// renderProgressBar renders a progress bar showing completion percentage.
+func (a *App) renderProgressBar(width int) string {
+	percentage := a.GetCompletionPercentage()
+	completedStories := 0
+	totalStories := len(a.prd.UserStories)
+	for _, s := range a.prd.UserStories {
+		if s.Passes {
+			completedStories++
+		}
+	}
+
+	// Calculate bar width
+	barWidth := width - 15 // Space for percentage and count
+	if barWidth < 10 {
+		barWidth = 10
+	}
+
+	filledWidth := int(float64(barWidth) * percentage / 100.0)
+	emptyWidth := barWidth - filledWidth
+
+	bar := progressBarFillStyle.Render(strings.Repeat("█", filledWidth)) +
+		progressBarEmptyStyle.Render(strings.Repeat("░", emptyWidth))
+
+	return fmt.Sprintf("%s %3.0f%% %d/%d", bar, percentage, completedStories, totalStories)
+}
+
+// formatDuration formats a duration in a human-readable way.
+func formatDuration(d time.Duration) string {
+	if d == 0 {
+		return "0s"
+	}
+
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	s := int(d.Seconds()) % 60
+
+	if h > 0 {
+		return fmt.Sprintf("%dh%02dm%02ds", h, m, s)
+	}
+	if m > 0 {
+		return fmt.Sprintf("%dm%02ds", m, s)
+	}
+	return fmt.Sprintf("%ds", s)
+}
+
+// wrapText wraps text to fit within a given width.
+func wrapText(text string, width int) string {
+	if width <= 0 {
+		return text
+	}
+
+	var result strings.Builder
+	words := strings.Fields(text)
+	lineLen := 0
+
+	for i, word := range words {
+		wordLen := len(word)
+
+		if lineLen+wordLen+1 > width && lineLen > 0 {
+			result.WriteString("\n")
+			lineLen = 0
+		}
+
+		if lineLen > 0 {
+			result.WriteString(" ")
+			lineLen++
+		}
+
+		result.WriteString(word)
+		lineLen += wordLen
+
+		// Handle very long words
+		if wordLen > width && i < len(words)-1 {
+			result.WriteString("\n")
+			lineLen = 0
+		}
+	}
+
+	return result.String()
+}
+
+// max returns the maximum of two integers.
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// min returns the minimum of two integers.
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
