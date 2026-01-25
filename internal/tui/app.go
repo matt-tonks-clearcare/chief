@@ -10,6 +10,12 @@ import (
 	"github.com/minicodemonkey/chief/internal/prd"
 )
 
+// PRDUpdateMsg is sent when the PRD file changes.
+type PRDUpdateMsg struct {
+	PRD   *prd.PRD
+	Error error
+}
+
 // AppState represents the current state of the application.
 type AppState int
 
@@ -72,6 +78,9 @@ type App struct {
 
 	// Activity tracking
 	lastActivity string
+
+	// File watching
+	watcher *prd.Watcher
 }
 
 // NewApp creates a new App with the given PRD.
@@ -92,6 +101,12 @@ func NewAppWithOptions(prdPath string, maxIter int) (*App, error) {
 		prdName = filepath.Base(prdPath)
 	}
 
+	// Create file watcher
+	watcher, err := prd.NewWatcher(prdPath)
+	if err != nil {
+		return nil, err
+	}
+
 	return &App{
 		prd:           p,
 		prdPath:       prdPath,
@@ -100,13 +115,23 @@ func NewAppWithOptions(prdPath string, maxIter int) (*App, error) {
 		iteration:     0,
 		selectedIndex: 0,
 		maxIter:       maxIter,
+		watcher:       watcher,
 	}, nil
 }
 
 // Init initializes the App.
 func (a App) Init() tea.Cmd {
+	// Start the file watcher
+	if a.watcher != nil {
+		if err := a.watcher.Start(); err != nil {
+			// Log error but don't fail - watcher is not critical
+			a.lastActivity = "Warning: file watcher failed to start"
+		}
+	}
+
 	return tea.Batch(
 		tea.EnterAltScreen,
+		a.listenForPRDChanges(),
 	)
 }
 
@@ -124,10 +149,14 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case LoopFinishedMsg:
 		return a.handleLoopFinished(msg.Err)
 
+	case PRDUpdateMsg:
+		return a.handlePRDUpdate(msg)
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "q", "ctrl+c":
 			a.stopLoop()
+			a.stopWatcher()
 			return a, tea.Quit
 
 		// Loop controls
@@ -341,4 +370,47 @@ func (a *App) GetCompletionPercentage() float64 {
 // GetLastActivity returns the last activity message.
 func (a *App) GetLastActivity() string {
 	return a.lastActivity
+}
+
+// listenForPRDChanges listens for PRD file changes and returns them as messages.
+func (a *App) listenForPRDChanges() tea.Cmd {
+	if a.watcher == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		event, ok := <-a.watcher.Events()
+		if !ok {
+			return nil
+		}
+		return PRDUpdateMsg{PRD: event.PRD, Error: event.Error}
+	}
+}
+
+// handlePRDUpdate handles PRD file change events.
+func (a App) handlePRDUpdate(msg PRDUpdateMsg) (tea.Model, tea.Cmd) {
+	if msg.Error != nil {
+		// File error - could be temporary, keep watching
+		a.lastActivity = "PRD file error: " + msg.Error.Error()
+	} else if msg.PRD != nil {
+		// Update the PRD
+		a.prd = msg.PRD
+
+		// Adjust selected index if it's now out of bounds
+		if a.selectedIndex >= len(a.prd.UserStories) {
+			a.selectedIndex = len(a.prd.UserStories) - 1
+			if a.selectedIndex < 0 {
+				a.selectedIndex = 0
+			}
+		}
+	}
+
+	// Continue listening for changes
+	return a, a.listenForPRDChanges()
+}
+
+// stopWatcher stops the file watcher.
+func (a *App) stopWatcher() {
+	if a.watcher != nil {
+		a.watcher.Stop()
+	}
 }
