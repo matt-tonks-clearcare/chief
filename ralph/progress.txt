@@ -362,3 +362,31 @@
   - Warning banner uses a dark amber background (#3D3000) with yellow text for visibility
 ---
 
+## 2026-01-25 - US-016
+- What was implemented:
+  - Created embed/init_prompt.txt with PRD generator prompt that guides Claude to create structured PRDs
+  - Updated embed/embed.go with GetInitPrompt() function for context substitution
+  - Created internal/cmd/init.go with RunInit() function implementing the init command
+  - Supports: chief init, chief init <name>, chief init <name> <context>
+  - Creates directory structure .chief/prds/<name>/ if it doesn't exist
+  - Validates PRD names (alphanumeric, hyphens, underscores only)
+  - Detects existing PRDs and suggests chief edit instead
+  - Launches interactive Claude session with -p flag for PRD creation
+  - Added RunConvert() function for prd.md to prd.json conversion (basic implementation, to be enhanced in US-018)
+  - Updated cmd/chief/main.go with subcommand handling (init, help)
+  - Added help command with usage examples
+  - Comprehensive unit tests for name validation, JSON cleaning, directory creation
+- Files changed:
+  - embed/init_prompt.txt (new)
+  - embed/embed.go (modified - added GetInitPrompt)
+  - internal/cmd/init.go (new)
+  - internal/cmd/init_test.go (new)
+  - cmd/chief/main.go (modified - subcommand handling)
+- **Learnings for future iterations:**
+  - Use exec.Command with -p flag for interactive Claude sessions (not --dangerously-skip-permissions)
+  - The internal/cmd package is good for CLI command logic, separate from TUI
+  - Name validation can be done inline with character range checks (simpler than regex)
+  - JSON cleaning helper is useful for removing markdown code blocks from Claude output
+  - Use {{PLACEHOLDER}} pattern consistently for string substitution in embedded prompts
+---
+
