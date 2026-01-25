@@ -10,6 +10,7 @@
 - File watching: use fsnotify for filesystem changes, send events through channels, only notify on status field changes
 - Styling: Use centralized styles from internal/tui/styles.go, use GetStateStyle() and GetActivityStyle() for state-dependent rendering
 - Parallel execution: Use internal/loop/manager.go Manager for multi-PRD loops, each instance has own goroutine and context
+- Audio: Use internal/notify package with oto/v2, singleton pattern for oto.Context, graceful error handling for missing audio devices
 
 ---
 
@@ -474,5 +475,32 @@
   - bufio.Reader is needed for interactive user input during conversion
   - Progress protection only triggers when HasProgress() returns true AND prd.json exists
   - MergeProgress modifies newPRD in place, so re-marshal after merge for final output
+---
+
+## 2026-01-25 - US-020
+- What was implemented:
+  - Created internal/notify/sound.go with Notifier struct for audio playback
+  - Embedded ~17KB WAV file using //go:embed directive (mono, 22050Hz, 16-bit, 0.4s duration)
+  - Created gen_wav.go utility to generate the completion sound (C major chord chime with decay)
+  - Used github.com/hajimehoshi/oto/v2 for cross-platform audio playback
+  - Added --no-sound flag to disable audio notifications
+  - Sound plays when any PRD completes (via completion callback) or max iterations reached
+  - Audio errors are logged as warnings but don't crash the application
+  - Added SetCompletionCallback to App for triggering sound from loop completion events
+  - Comprehensive unit tests for WAV generation, reader, and notifier state
+- Files changed:
+  - internal/notify/sound.go (new)
+  - internal/notify/sound_test.go (new)
+  - internal/notify/gen_wav.go (new)
+  - internal/notify/complete.wav (new - generated)
+  - cmd/chief/main.go (modified - added --no-sound flag and sound initialization)
+  - go.mod, go.sum (modified - added oto/v2 dependency)
+- **Learnings for future iterations:**
+  - oto.Context should be singleton (one per process) - use sync.Once pattern
+  - Use smaller sample rates (22050) and mono channel for smaller embedded assets
+  - WAV format: 44-byte header (RIFF/WAVE/fmt/data chunks), then raw PCM data
+  - Play audio in goroutine to avoid blocking the UI
+  - Error handling for audio should be graceful - not all systems have audio devices
+  - The completion callback pattern allows sound to play for ANY PRD completing, not just the viewed one
 ---
 
