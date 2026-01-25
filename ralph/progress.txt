@@ -528,3 +528,30 @@
   - Output format should be plain text suitable for scripting (no fancy formatting)
 ---
 
+## 2026-01-25 - US-022
+- What was implemented:
+  - Complete CLI flag parsing for the TUI with all required flags
+  - --max-iterations N, -n N: Set iteration limit (default: 10) with validation
+  - --no-sound: Disable completion sound notifications
+  - --verbose: Show raw Claude output in log (added SetVerbose method to App)
+  - --merge: Auto-merge on conversion conflicts (passed to prd.Convert)
+  - --force: Auto-overwrite on conversion conflicts (passed to prd.Convert)
+  - Positional argument: PRD name (loads .chief/prds/<name>/prd.json) or path to prd.json
+  - --help, -h: Show comprehensive usage with all flags documented
+  - --version, -v: Show version number (set at build time via ldflags, defaults to "dev")
+  - TUIOptions struct for clean option passing
+  - parseTUIFlags() function for argument parsing
+  - Error handling for unknown flags, invalid values, and missing required values
+  - Support for both --max-iterations N and --max-iterations=N formats
+- Files changed:
+  - cmd/chief/main.go (modified - added Version variable, TUIOptions struct, parseTUIFlags, updated help text)
+  - internal/tui/app.go (modified - added verbose field and SetVerbose method)
+- **Learnings for future iterations:**
+  - Use switch case for flag parsing with string prefix checks for =value syntax
+  - Handle both --flag N and --flag=N formats for flags with values
+  - Version should be set via ldflags at build time: -ldflags "-X main.Version=x.y.z"
+  - Subcommand detection should happen first (before flag parsing) to avoid conflicts
+  - Return nil from flag parser to indicate help/version was already handled
+  - Validate numeric flags (must be >= 1 for max-iterations)
+---
+
