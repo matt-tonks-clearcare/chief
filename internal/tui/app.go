@@ -57,6 +57,14 @@ type LoopFinishedMsg struct {
 	Err error
 }
 
+// ViewMode represents which view is currently active.
+type ViewMode int
+
+const (
+	ViewDashboard ViewMode = iota
+	ViewLog
+)
+
 // App is the main Bubble Tea model for the Chief TUI.
 type App struct {
 	prd           *prd.PRD
@@ -81,6 +89,10 @@ type App struct {
 
 	// File watching
 	watcher *prd.Watcher
+
+	// View mode
+	viewMode  ViewMode
+	logViewer *LogViewer
 }
 
 // NewApp creates a new App with the given PRD.
@@ -116,6 +128,8 @@ func NewAppWithOptions(prdPath string, maxIter int) (*App, error) {
 		selectedIndex: 0,
 		maxIter:       maxIter,
 		watcher:       watcher,
+		viewMode:      ViewDashboard,
+		logViewer:     NewLogViewer(),
 	}, nil
 }
 
@@ -141,6 +155,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		a.width = msg.Width
 		a.height = msg.Height
+		// Update log viewer size
+		a.logViewer.SetSize(a.width, a.height-headerHeight-footerHeight-2)
 		return a, nil
 
 	case LoopEventMsg:
@@ -159,7 +175,17 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.stopWatcher()
 			return a, tea.Quit
 
-		// Loop controls
+		// View switching
+		case "t":
+			if a.viewMode == ViewDashboard {
+				a.viewMode = ViewLog
+				a.logViewer.SetSize(a.width, a.height-headerHeight-footerHeight-2)
+			} else {
+				a.viewMode = ViewDashboard
+			}
+			return a, nil
+
+		// Loop controls (work in both views)
 		case "s":
 			if a.state == StateReady || a.state == StatePaused {
 				return a.startLoop()
@@ -173,14 +199,40 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a.stopLoopAndUpdate()
 			}
 
-		// Navigation
+		// Navigation - different behavior based on view
 		case "up", "k":
-			if a.selectedIndex > 0 {
-				a.selectedIndex--
+			if a.viewMode == ViewLog {
+				a.logViewer.ScrollUp()
+			} else {
+				if a.selectedIndex > 0 {
+					a.selectedIndex--
+				}
 			}
 		case "down", "j":
-			if a.selectedIndex < len(a.prd.UserStories)-1 {
-				a.selectedIndex++
+			if a.viewMode == ViewLog {
+				a.logViewer.ScrollDown()
+			} else {
+				if a.selectedIndex < len(a.prd.UserStories)-1 {
+					a.selectedIndex++
+				}
+			}
+
+		// Log-specific scrolling
+		case "ctrl+d":
+			if a.viewMode == ViewLog {
+				a.logViewer.PageDown()
+			}
+		case "ctrl+u":
+			if a.viewMode == ViewLog {
+				a.logViewer.PageUp()
+			}
+		case "g":
+			if a.viewMode == ViewLog {
+				a.logViewer.ScrollToTop()
+			}
+		case "G":
+			if a.viewMode == ViewLog {
+				a.logViewer.ScrollToBottom()
 			}
 		}
 	}
@@ -255,6 +307,9 @@ func (a App) stopLoopAndUpdate() (tea.Model, tea.Cmd) {
 func (a App) handleLoopEvent(event loop.Event) (tea.Model, tea.Cmd) {
 	a.iteration = event.Iteration
 
+	// Add event to log viewer
+	a.logViewer.AddEvent(event)
+
 	switch event.Type {
 	case loop.EventIterationStart:
 		a.lastActivity = "Starting iteration..."
@@ -319,7 +374,12 @@ func (a App) handleLoopFinished(err error) (tea.Model, tea.Cmd) {
 
 // View renders the TUI.
 func (a App) View() string {
-	return a.renderDashboard()
+	switch a.viewMode {
+	case ViewLog:
+		return a.renderLogView()
+	default:
+		return a.renderDashboard()
+	}
 }
 
 // GetPRD returns the current PRD.

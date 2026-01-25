@@ -77,17 +77,24 @@ func (a *App) renderHeader() string {
 
 // renderFooter renders the footer with keyboard shortcuts, PRD name, and activity line.
 func (a *App) renderFooter() string {
-	// Keyboard shortcuts (context-sensitive)
+	// Keyboard shortcuts (context-sensitive based on view and state)
 	var shortcuts []string
-	switch a.state {
-	case StateReady, StatePaused:
-		shortcuts = []string{"s: start", "↑/k: up", "↓/j: down", "q: quit"}
-	case StateRunning:
-		shortcuts = []string{"p: pause", "x: stop", "↑/k: up", "↓/j: down", "q: quit"}
-	case StateStopped, StateError:
-		shortcuts = []string{"s: retry", "↑/k: up", "↓/j: down", "q: quit"}
-	default:
-		shortcuts = []string{"↑/k: up", "↓/j: down", "q: quit"}
+
+	if a.viewMode == ViewLog {
+		// Log view shortcuts
+		shortcuts = []string{"t: dashboard", "j/k: scroll", "Ctrl+D/U: page", "g/G: top/bottom", "q: quit"}
+	} else {
+		// Dashboard view shortcuts
+		switch a.state {
+		case StateReady, StatePaused:
+			shortcuts = []string{"s: start", "t: log", "↑/k: up", "↓/j: down", "q: quit"}
+		case StateRunning:
+			shortcuts = []string{"p: pause", "x: stop", "t: log", "↑/k: up", "↓/j: down", "q: quit"}
+		case StateStopped, StateError:
+			shortcuts = []string{"s: retry", "t: log", "↑/k: up", "↓/j: down", "q: quit"}
+		default:
+			shortcuts = []string{"t: log", "↑/k: up", "↓/j: down", "q: quit"}
+		}
 	}
 	shortcutsStr := footerStyle.Render(strings.Join(shortcuts, "  │  "))
 
@@ -325,4 +332,67 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// renderLogView renders the full-screen log view.
+func (a *App) renderLogView() string {
+	if a.width == 0 || a.height == 0 {
+		return "Loading..."
+	}
+
+	header := a.renderLogHeader()
+	footer := a.renderFooter()
+
+	// Calculate content area height
+	contentHeight := a.height - headerHeight - footerHeight - 2
+
+	// Render log content
+	a.logViewer.SetSize(a.width-4, contentHeight)
+	logContent := a.logViewer.Render()
+
+	// Wrap in a panel
+	logPanel := panelStyle.Width(a.width - 2).Height(contentHeight).Render(logContent)
+
+	// Stack header, content, and footer
+	return lipgloss.JoinVertical(lipgloss.Left, header, logPanel, footer)
+}
+
+// renderLogHeader renders the header for the log view.
+func (a *App) renderLogHeader() string {
+	// Branding
+	brand := headerStyle.Render("chief")
+
+	// View indicator
+	viewIndicator := lipgloss.NewStyle().
+		Foreground(PrimaryColor).
+		Bold(true).
+		Render("[Log View]")
+
+	// State indicator
+	stateStyle := GetStateStyle(a.state)
+	state := stateStyle.Render(fmt.Sprintf("[%s]", a.state.String()))
+
+	// Iteration count
+	iteration := SubtitleStyle.Render(fmt.Sprintf("Iteration: %d", a.iteration))
+
+	// Auto-scroll indicator
+	var scrollIndicator string
+	if a.logViewer.IsAutoScrolling() {
+		scrollIndicator = lipgloss.NewStyle().Foreground(SuccessColor).Render("[Auto-scroll]")
+	} else {
+		scrollIndicator = lipgloss.NewStyle().Foreground(MutedColor).Render("[Manual scroll]")
+	}
+
+	// Combine elements
+	leftPart := lipgloss.JoinHorizontal(lipgloss.Center, brand, "  ", viewIndicator, "  ", state)
+	rightPart := lipgloss.JoinHorizontal(lipgloss.Center, iteration, "  ", scrollIndicator)
+
+	// Create the full header line with proper spacing
+	spacing := strings.Repeat(" ", max(0, a.width-lipgloss.Width(leftPart)-lipgloss.Width(rightPart)-2))
+	headerLine := lipgloss.JoinHorizontal(lipgloss.Center, leftPart, spacing, rightPart)
+
+	// Add a border below
+	border := DividerStyle.Render(strings.Repeat("─", a.width))
+
+	return lipgloss.JoinVertical(lipgloss.Left, headerLine, border)
 }
