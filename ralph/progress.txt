@@ -340,3 +340,25 @@
   - Panel width in stacked mode: a.width - 2 (account for borders only, not gap)
 ---
 
+## 2026-01-25 - US-015
+- What was implemented:
+  - Added renderErrorPanel() function to display error details in the right panel when in error state
+  - Error panel shows: red ERROR indicator, error message with word wrapping, claude.log hint, retry instructions
+  - Added renderEmptyPRDPanel() function for empty PRD state with chief init instructions
+  - Added hasInterruptedStory() and getInterruptedStory() helper functions
+  - Added renderInterruptedWarning() for displaying a warning banner when there's an inProgress story
+  - Updated renderDetailsPanel() to check for empty PRD, error state, and interrupted stories
+  - Modified 's' key handler in app.go to allow retrying from error and stopped states
+  - Footer already shows "s: retry" in error state (was already implemented in US-007)
+- Files changed:
+  - internal/tui/dashboard.go (modified - added error panel, empty panel, interrupted warning)
+  - internal/tui/app.go (modified - extended 's' key handler to include error/stopped states)
+- **Learnings for future iterations:**
+  - Details panel order: check empty PRD first, then error state, then normal rendering
+  - Interrupted story warning is shown only in Ready state (not when running or in error)
+  - Error messages are wrapped using existing wrapText() helper for consistent display
+  - Use StateErrorStyle from styles.go for consistent error text coloring
+  - Empty state should show both the problem AND actionable instructions (chief init command)
+  - Warning banner uses a dark amber background (#3D3000) with yellow text for visibility
+---
+
