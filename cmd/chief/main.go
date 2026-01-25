@@ -2,12 +2,14 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/minicodemonkey/chief/internal/cmd"
+	"github.com/minicodemonkey/chief/internal/notify"
 	"github.com/minicodemonkey/chief/internal/prd"
 	"github.com/minicodemonkey/chief/internal/tui"
 )
@@ -77,16 +79,22 @@ func runEdit() {
 func runTUI() {
 	// For now, use a default PRD path (will be configurable via CLI flags in US-022)
 	prdPath := ".chief/prds/main/prd.json"
+	noSound := false
 
-	// Check for command-line argument for PRD path
-	if len(os.Args) > 1 {
-		arg := os.Args[1]
-		// If it looks like a path or name, use it
-		if strings.HasSuffix(arg, ".json") || strings.HasSuffix(arg, "/") {
-			prdPath = arg
-		} else if !strings.HasPrefix(arg, "-") {
-			// Treat as PRD name
-			prdPath = fmt.Sprintf(".chief/prds/%s/prd.json", arg)
+	// Parse arguments
+	for i := 1; i < len(os.Args); i++ {
+		arg := os.Args[i]
+		switch arg {
+		case "--no-sound":
+			noSound = true
+		default:
+			// If it looks like a path or name, use it
+			if strings.HasSuffix(arg, ".json") || strings.HasSuffix(arg, "/") {
+				prdPath = arg
+			} else if !strings.HasPrefix(arg, "-") {
+				// Treat as PRD name
+				prdPath = fmt.Sprintf(".chief/prds/%s/prd.json", arg)
+			}
 		}
 	}
 
@@ -110,6 +118,20 @@ func runTUI() {
 		os.Exit(1)
 	}
 
+	// Initialize sound notifier (unless disabled)
+	if !noSound {
+		notifier, err := notify.GetNotifier()
+		if err != nil {
+			// Log warning but don't crash - audio is optional
+			log.Printf("Warning: audio initialization failed: %v", err)
+		} else {
+			// Set completion callback to play sound when any PRD completes
+			app.SetCompletionCallback(func(prdName string) {
+				notifier.PlayCompletion()
+			})
+		}
+	}
+
 	p := tea.NewProgram(app, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Error running program: %v\n", err)
@@ -130,6 +152,9 @@ Commands:
   edit [name] [options]     Edit an existing PRD interactively
   help                      Show this help message
 
+Global Options:
+  --no-sound                Disable completion sound notifications
+
 Edit Options:
   --merge                   Auto-merge progress on conversion conflicts
   --force                   Auto-overwrite on conversion conflicts
@@ -141,5 +166,6 @@ Examples:
                             Create PRD with context hint
   chief edit                Edit PRD in .chief/prds/main/
   chief edit auth           Edit PRD in .chief/prds/auth/
-  chief edit auth --merge   Edit and auto-merge progress`)
+  chief edit auth --merge   Edit and auto-merge progress
+  chief --no-sound          Launch TUI without audio notifications`)
 }
