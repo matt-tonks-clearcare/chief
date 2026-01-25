@@ -8,6 +8,7 @@
 - Use json.RawMessage for partial JSON parsing when structure varies (e.g., content blocks)
 - Embed assets: use `embed/` package with //go:embed directive, use {{PLACEHOLDER}} syntax for substitution
 - File watching: use fsnotify for filesystem changes, send events through channels, only notify on status field changes
+- Styling: Use centralized styles from internal/tui/styles.go, use GetStateStyle() and GetActivityStyle() for state-dependent rendering
 
 ---
 
@@ -183,5 +184,27 @@
   - The hasStatusChanged() method maps old stories by ID for efficient comparison
   - Watcher uses a buffered channel (10) to prevent blocking during rapid file changes
   - Always stop the watcher on app quit to release file handles
+---
+
+## 2026-01-25 - US-009
+- What was implemented:
+  - Expanded internal/tui/styles.go into a comprehensive styling system
+  - Defined complete color palette with semantic names: PrimaryColor (cyan #00D7FF), SuccessColor (green #5AF78E), WarningColor (yellow #F3F99D), ErrorColor (red #FF5C57), MutedColor (gray #6C7086), BorderColor (dark gray #45475A)
+  - Added text colors (TextColor, TextMutedColor, TextBrightColor) and background colors (BgColor, BgSelectedColor, BgHighlightColor)
+  - Created organized style categories: Header styles, Footer styles, Panel styles, Selection styles, Status badge styles, Title/label styles, Progress bar styles, Activity line styles, Divider styles
+  - Added state-specific styles: StateReadyStyle, StateRunningStyle, StatePausedStyle, StateStoppedStyle, StateCompleteStyle, StateErrorStyle
+  - Added helper functions: GetStateStyle(state) and GetActivityStyle(state) for consistent state rendering
+  - Added IconPaused constant and statusPausedStyle for paused state (yellow)
+  - Updated dashboard.go to use centralized styling system throughout (removed inline style definitions)
+  - Maintained backward compatibility with lowercase aliases for existing code
+- Files changed:
+  - internal/tui/styles.go (modified - expanded from 77 to 218 lines)
+  - internal/tui/dashboard.go (modified - use centralized styles)
+- **Learnings for future iterations:**
+  - Organize styles into logical categories (header, footer, panel, status, etc.) for maintainability
+  - Export styles with PascalCase and keep lowercase aliases for backward compatibility
+  - Create helper functions (GetStateStyle, GetActivityStyle) to encapsulate state-to-style mappings
+  - Use semantic color names (Primary, Success, Warning, Error) rather than color names (Cyan, Green, Yellow, Red)
+  - Keep divider/border styles centralized to ensure consistent visual separators throughout the app
 ---
 
