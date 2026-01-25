@@ -1,8 +1,10 @@
-# Ralph TUI - Feature Specification
+# Chief TUI - Feature Specification
 
 ## Overview
 
-Ralph is an autonomous agent loop that orchestrates Claude Code to work through PRD user stories. This spec describes a TUI application that wraps the agent loop with monitoring, controls, and a delightful developer experience.
+Chief is an autonomous agent loop that orchestrates Claude Code to work through PRD user stories. This spec describes a TUI application that wraps the agent loop with monitoring, controls, and a delightful developer experience.
+
+*Named after Chief Wiggum, Ralph Wiggum's dad from The Simpsons. Inspired by [snarktank/ralph](https://github.com/snarktank/ralph).*
 
 ## Goals
 
@@ -42,8 +44,8 @@ Ralph is an autonomous agent loop that orchestrates Claude Code to work through 
 ## Architecture
 
 ```
-ralph/
-├── cmd/ralph/
+chief/
+├── cmd/chief/
 │   └── main.go                  # CLI entry, flag parsing
 ├── internal/
 │   ├── loop/
@@ -51,10 +53,10 @@ ralph/
 │   │   └── parser.go            # Parse stream-json → events
 │   ├── prd/
 │   │   ├── types.go             # PRD structs
-│   │   ├── loader.go            # Load, watch, list PRDs
-│   │   └── generator.go         # `ralph init` (launches Claude)
+│   │   ├── loader.go            # Load, watch, list PRDs from .chief/prds/
+│   │   └── generator.go         # `chief init` (launches Claude)
 │   ├── progress/
-│   │   └── progress.go          # Append to progress.txt
+│   │   └── progress.go          # Append to progress.md
 │   ├── tui/
 │   │   ├── app.go               # Main Bubble Tea model
 │   │   ├── dashboard.go         # Dashboard view (tasks + details)
@@ -73,51 +75,232 @@ ralph/
 
 ## Core Loop Design
 
-The loop must be **dead simple** - anyone reading the code should immediately understand it:
+The loop must be **dead simple** - anyone reading the code should immediately understand it.
+
+### The Loop in Plain English
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           CHIEF LOOP MECHANICS                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  1. READ STATE                                                              │
+│     └── Load prd.json to check for incomplete stories                       │
+│                                                                             │
+│  2. BUILD PROMPT                                                            │
+│     └── Combine: embedded agent prompt + PRD path + current story context   │
+│                                                                             │
+│  3. INVOKE CLAUDE                                                           │
+│     └── claude --dangerously-skip-permissions -p <prompt> \                 │
+│               --output-format stream-json --verbose                         │
+│                                                                             │
+│  4. STREAM OUTPUT                                                           │
+│     ├── Parse each JSON line from stdout                                    │
+│     ├── Extract: assistant text, tool calls, tool results                   │
+│     ├── Send events to TUI for display                                      │
+│     └── Append raw output to claude.log                                     │
+│                                                                             │
+│  5. WAIT FOR EXIT                                                           │
+│     ├── Claude exits when it completes a story (or errors)                  │
+│     └── Check exit code: 0 = success, non-zero = error                      │
+│                                                                             │
+│  6. CHECK COMPLETION                                                        │
+│     ├── Re-read prd.json (Claude updated it)                                │
+│     ├── If all stories pass: emit <chief-complete/>, play sound, stop       │
+│     ├── If iteration < max: goto step 1                                     │
+│     └── If iteration >= max: stop, notify user                              │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Code (~80 lines total)
 
 ```go
-// internal/loop/loop.go - The ENTIRE loop logic
+// internal/loop/loop.go
 
-func (l *Loop) RunIteration(ctx context.Context) error {
-    // This is the only "magic" - just calling claude with args
-    cmd := exec.CommandContext(ctx, "claude",
+type Loop struct {
+    prdPath    string
+    prompt     string
+    maxIter    int
+    iteration  int
+    events     chan Event  // Send to TUI
+    claudeCmd  *exec.Cmd
+}
+
+// Run executes the full loop until complete or max iterations
+func (l *Loop) Run(ctx context.Context) error {
+    for l.iteration < l.maxIter {
+        l.iteration++
+        l.events <- Event{Type: IterationStart, Iteration: l.iteration}
+
+        if err := l.runIteration(ctx); err != nil {
+            if ctx.Err() != nil {
+                return ctx.Err()  // User cancelled
+            }
+            l.events <- Event{Type: Error, Err: err}
+            continue  // Try next iteration
+        }
+
+        // Check if all stories complete
+        prd, _ := LoadPRD(l.prdPath)
+        if prd.AllComplete() {
+            l.events <- Event{Type: Complete}
+            return nil
+        }
+    }
+    l.events <- Event{Type: MaxIterationsReached}
+    return nil
+}
+
+// runIteration executes a single Claude invocation
+func (l *Loop) runIteration(ctx context.Context) error {
+    l.claudeCmd = exec.CommandContext(ctx, "claude",
         "--dangerously-skip-permissions",
         "-p", l.prompt,
         "--output-format", "stream-json",
         "--verbose",
     )
 
-    stdout, _ := cmd.StdoutPipe()
-    cmd.Start()
+    stdout, _ := l.claudeCmd.StdoutPipe()
+    l.claudeCmd.Start()
 
-    // Parse stream-json and emit events to TUI
+    // Stream and parse output
     scanner := bufio.NewScanner(stdout)
     for scanner.Scan() {
-        l.handleLine(scanner.Text())
+        line := scanner.Text()
+        l.logToFile(line)
+        if event := l.parseLine(line); event != nil {
+            l.events <- *event
+        }
     }
 
-    return cmd.Wait()
+    return l.claudeCmd.Wait()
+}
+
+// Stop kills the Claude process (for 'x' key)
+func (l *Loop) Stop() {
+    if l.claudeCmd != nil && l.claudeCmd.Process != nil {
+        l.claudeCmd.Process.Kill()
+    }
 }
 ```
 
-**Key principle**: No magic. Just `claude` with flags.
+### Stream-JSON Format
+
+Claude's `--output-format stream-json` emits one JSON object per line:
+
+```jsonl
+{"type":"assistant","message":{"content":[{"type":"text","text":"Let me read the PRD..."}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":".chief/prds/main/prd.json"}}]}}
+{"type":"tool_result","content":"{\n  \"project\": \"..."}
+{"type":"assistant","message":{"content":[{"type":"text","text":"I'll work on US-001..."}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"src/app.ts"}}]}}
+{"type":"tool_result","content":"File edited successfully"}
+{"type":"result","result":"Story US-001 complete. Updated prd.json."}
+```
+
+### Parser Events
+
+```go
+// internal/loop/parser.go
+
+type EventType int
+
+const (
+    IterationStart EventType = iota
+    AssistantText           // Claude is "thinking" - show in log
+    ToolStart               // Tool invocation started
+    ToolResult              // Tool completed
+    StoryStarted            // Claude set inProgress: true
+    StoryCompleted          // Claude set passes: true
+    Complete                // All stories done (<chief-complete/>)
+    MaxIterationsReached
+    Error
+)
+
+type Event struct {
+    Type      EventType
+    Iteration int
+    Text      string      // For AssistantText
+    Tool      string      // For ToolStart/ToolResult (Read, Edit, Bash, etc.)
+    ToolInput string      // Tool arguments (file path, command, etc.)
+    StoryID   string      // For StoryStarted/StoryCompleted
+    Err       error       // For Error
+}
+
+func (l *Loop) parseLine(line string) *Event {
+    var msg StreamMessage
+    json.Unmarshal([]byte(line), &msg)
+
+    switch msg.Type {
+    case "assistant":
+        // Check content blocks for text vs tool_use
+        for _, block := range msg.Message.Content {
+            if block.Type == "text" {
+                // Check for <chief-complete/>
+                if strings.Contains(block.Text, "<chief-complete/>") {
+                    return &Event{Type: Complete}
+                }
+                return &Event{Type: AssistantText, Text: block.Text}
+            }
+            if block.Type == "tool_use" {
+                return &Event{Type: ToolStart, Tool: block.Name, ToolInput: block.Input}
+            }
+        }
+    case "tool_result":
+        return &Event{Type: ToolResult}
+    }
+    return nil
+}
+```
+
+### How Claude Knows What To Do
+
+The prompt (embedded in Chief) tells Claude:
+
+1. **Where to find the PRD**: `.chief/prds/<name>/prd.json`
+2. **How to pick the next story**: First `inProgress: true`, then lowest priority with `passes: false`
+3. **How to mark progress**: Update `inProgress` and `passes` fields in prd.json
+4. **How to signal completion**: Output `<chief-complete/>` when all stories pass
+5. **What to log**: Append to progress.md after each story
+
+Claude is autonomous within an iteration — Chief just watches and displays.
+
+### Key Principle
+
+**No magic. Just `claude` with flags.**
+
+The entire system is:
+1. A prompt that tells Claude how to work through stories
+2. A JSON file that tracks state
+3. A TUI that displays progress
+4. A loop that keeps invoking Claude until done
 
 ## File Structure
 
-When ralph runs in a project:
+When Chief runs in a project:
 
 ```
 your-project/
-├── ralph/
-│   ├── prd.md                # Human-readable PRD (from `ralph init`)
-│   ├── prd.json              # Machine-readable PRD (from `ralph convert`)
-│   ├── prd-backend.json      # Optional additional PRD
-│   ├── prd-auth.json         # Optional additional PRD
-│   ├── progress.txt          # Human-readable progress log
-│   └── .output.log           # Raw Claude output
+├── .chief/
+│   └── prds/
+│       ├── main/                 # Default PRD
+│       │   ├── prd.md            # Human-readable PRD (from `chief init`)
+│       │   ├── prd.json          # Machine-readable PRD (auto-generated from prd.md)
+│       │   ├── progress.md       # Human-readable progress log
+│       │   └── claude.log        # Raw Claude output
+│       ├── auth/                 # Additional PRD
+│       │   ├── prd.md
+│       │   ├── prd.json
+│       │   ├── progress.md
+│       │   └── claude.log
+│       └── api/                  # Another PRD
+│           └── ...
 ├── src/
 └── ...
 ```
+
+Each PRD lives in its own directory with all related files. The directory name is the PRD identifier used in CLI commands.
 
 ## PRD Schema
 
@@ -156,26 +339,74 @@ your-project/
 
 ```bash
 # Main usage
-ralph                      # Auto-detect PRD in ./ralph/, start TUI
-ralph ./ralph/prd.json     # Explicit PRD file
+chief                      # Run default PRD (.chief/prds/main/), start TUI
+chief auth                 # Run specific PRD by name (.chief/prds/auth/)
+chief ./path/to/prd.json   # Run PRD from explicit path
 
-# PRD generation (launches Claude as subprocess)
-ralph init                 # Interactive: describe feature → generate PRD
-ralph init "user auth"     # Non-interactive: generate PRD for "user auth"
-ralph convert prd.md       # Convert markdown PRD to prd.json
+# PRD generation
+chief init                 # Create new PRD in .chief/prds/main/
+chief init auth            # Create new PRD in .chief/prds/auth/
+chief init auth "login"    # Create with initial context for "login"
+chief edit                 # Edit existing PRD (default: main)
+chief edit auth            # Edit specific PRD
 
 # Options
-ralph --max-iterations 40  # Iteration limit (default: 10)
-ralph --no-sound           # Disable completion sound
-ralph --verbose            # Show raw Claude output in log
+chief --max-iterations 40  # Iteration limit (default: 10)
+chief --no-sound           # Disable completion sound
+chief --verbose            # Show raw Claude output in log
 
 # Note: One iteration = one Claude invocation = typically one story.
 # If you have 15 stories, set --max-iterations to at least 15.
 # The limit prevents runaway loops and excessive API usage.
 
 # Quick commands (no TUI)
-ralph status               # Print current progress, exit
-ralph list                 # List all PRDs in ./ralph/
+chief status               # Print current progress for default PRD
+chief status auth          # Print progress for specific PRD
+chief list                 # List all PRDs in .chief/prds/
+```
+
+## Auto-Conversion
+
+**prd.md is the source of truth.** Users only edit prd.md — Chief handles conversion automatically.
+
+### When Conversion Happens
+
+1. **After `chief init`** — Automatically converts prd.md → prd.json
+2. **After `chief edit`** — Automatically converts prd.md → prd.json
+3. **Before `chief run`** — If prd.md is newer than prd.json, converts first
+
+### Progress Protection
+
+If prd.json has existing progress (any story with `passes: true` or `inProgress: true`), Chief warns before overwriting:
+
+```
+╭─ Warning ──────────────────────────────────────────────────────────────────────╮
+│                                                                                │
+│  prd.md has changed, but prd.json has progress:                                │
+│                                                                                │
+│    ✓  US-001  Set up Tailwind CSS with base config                             │
+│    ✓  US-002  Configure design tokens                                          │
+│    ▶  US-003  Create color theme system  (in progress)                         │
+│                                                                                │
+│  How would you like to proceed?                                                │
+│                                                                                │
+│    [M] Merge — Keep status for matching story IDs, add new stories             │
+│    [O] Overwrite — Regenerate prd.json (lose all progress)                     │
+│    [C] Cancel — Keep existing prd.json, don't convert                          │
+│                                                                                │
+╰────────────────────────────────────────────────────────────────────────────────╯
+```
+
+**Merge behavior:**
+- Stories with matching IDs keep their `passes` and `inProgress` status
+- New stories in prd.md are added with `passes: false`
+- Stories removed from prd.md are dropped from prd.json
+- Story content (title, description, acceptance criteria) updates from prd.md
+
+**CLI flags for non-interactive use:**
+```bash
+chief --merge              # Auto-merge without prompting
+chief --force              # Auto-overwrite without prompting
 ```
 
 ## TUI Design
@@ -220,7 +451,7 @@ The primary view showing task list and details side-by-side.
 
 ```
 ╭─────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│  ralph                                                          ● RUNNING  Iteration 3/40  00:12:34    │
+│  chief                                                          ● RUNNING  Iteration 3/40  00:12:34    │
 ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
 ╭─ Stories ─────────────────────────────────────╮ ╭─ Details ─────────────────────────────────────────────╮
@@ -253,14 +484,14 @@ The primary view showing task list and details side-by-side.
 │  Reading tailwind.config.ts to understand current configuration...                                      │
 ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
-  p Pause   x Stop   t Log   l Switch PRD   ↑↓ Navigate   ? Help                            prd.json   q Quit
+  p Pause   x Stop   t Log   l Switch PRD   ↑↓ Navigate   ? Help                            main   q Quit
 ```
 
 ### Idle State (Ready to Start)
 
 ```
 ╭─────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│  ralph                                                                ○ READY  prd.json  12 stories    │
+│  chief                                                                ○ READY  main  12 stories    │
 ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
 ╭─ Stories ─────────────────────────────────────╮ ╭─ Details ─────────────────────────────────────────────╮
@@ -290,14 +521,14 @@ The primary view showing task list and details side-by-side.
 
 
 
-  s Start   l Switch PRD   ↑↓ Navigate   ? Help                                             prd.json   q Quit
+  s Start   l Switch PRD   ↑↓ Navigate   ? Help                                             main   q Quit
 ```
 
 ### Paused State
 
 ```
 ╭─────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│  ralph                                                         ⏸ PAUSED  Iteration 3/40  00:12:34      │
+│  chief                                                         ⏸ PAUSED  Iteration 3/40  00:12:34      │
 ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
 ╭─ Stories ─────────────────────────────────────╮ ╭─ Details ─────────────────────────────────────────────╮
@@ -311,14 +542,14 @@ The primary view showing task list and details side-by-side.
 │  1 of 12 complete                         8%  │ │                                                       │
 ╰───────────────────────────────────────────────╯ ╰───────────────────────────────────────────────────────╯
 
-  s Resume   l Switch PRD   ↑↓ Navigate   ? Help                                            prd.json   q Quit
+  s Resume   l Switch PRD   ↑↓ Navigate   ? Help                                            main   q Quit
 ```
 
 ### Complete State
 
 ```
 ╭─────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│  ralph                                                       ✓ COMPLETE  12 iterations  00:47:23       │
+│  chief                                                       ✓ COMPLETE  12 iterations  00:47:23       │
 ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
 ╭─ Stories ─────────────────────────────────────╮ ╭─ Summary ─────────────────────────────────────────────╮
@@ -333,7 +564,7 @@ The primary view showing task list and details side-by-side.
 │  ✓  US-108  Create navigation header          │ │                                                       │
 │  ✓  US-109  Implement dark mode toggle        │ │  ─────────────────────────────────────────────────    │
 │  ✓  US-110  Add page transition animations    │ │                                                       │
-│  ✓  US-111  Create loading skeleton states    │ │  View progress.txt for detailed implementation        │
+│  ✓  US-111  Create loading skeleton states    │ │  View progress.md for detailed implementation         │
 │  ✓  US-112  Build toast notification system   │ │  notes and learnings.                                 │
 │                                               │ │                                                       │
 │  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  │ │                                                       │
@@ -341,7 +572,7 @@ The primary view showing task list and details side-by-side.
 │                                               │ │                                                       │
 ╰───────────────────────────────────────────────╯ ╰───────────────────────────────────────────────────────╯
 
-  l Switch PRD   t View Log   ? Help                                                        prd.json   q Quit
+  l Switch PRD   t View Log   ? Help                                                        main   q Quit
 ```
 
 ---
@@ -352,7 +583,7 @@ Full-screen view showing Claude's streaming output. Toggle with `t` key.
 
 ```
 ╭─────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│  ralph                                             ● RUNNING  US-102  Iteration 3/40  00:12:34         │
+│  chief                                             ● RUNNING  US-102  Iteration 3/40  00:12:34         │
 ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
 ╭─ Log ───────────────────────────────────────────────────────────────────────────────────────────────────╮
@@ -365,7 +596,7 @@ Full-screen view showing Claude's streaming output. Toggle with `t` key.
 │  First, let me update prd.json to mark this story as in progress.                                       │
 │                                                                                                         │
 │  ┌─────────────────────────────────────────────────────────────────────────────────────────────────┐    │
-│  │  ✏️  Edit  ralph/prd.json                                                                        │    │
+│  │  ✏️  Edit  .chief/prds/main/prd.json                                                              │    │
 │  └─────────────────────────────────────────────────────────────────────────────────────────────────┘    │
 │                                                                                                         │
 │  Now let me examine the current Tailwind configuration to understand what's already set up.             │
@@ -391,7 +622,7 @@ Full-screen view showing Claude's streaming output. Toggle with `t` key.
 │                                                                                                         │
 ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
-  t Dashboard   p Pause   x Stop   ↑↓ jk Scroll   G Bottom   g Top                          prd.json   q Quit
+  t Dashboard   p Pause   x Stop   ↑↓ jk Scroll   G Bottom   g Top                          main   q Quit
 ```
 
 **Tool Icons:**
@@ -415,24 +646,24 @@ Modal overlay for switching between PRDs. Toggle with `l` key.
 
 ```
 ╭─────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│  ralph                                                                ○ READY  prd.json  12 stories    │
+│  chief                                                                  ○ READY  main  12 stories      │
 ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
         ╭─ Select PRD ────────────────────────────────────────────────────────────────────────╮
         │                                                                                      │
-        │   ▶  prd.json                                                        ● Running      │
+        │   ▶  main                                                            ● Running      │
         │      Tap Documentation Website                                                       │
         │      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  8/12  67%             │
         │                                                                                      │
-        │      prd-api.json                                                    ○ Ready        │
+        │      api                                                             ○ Ready        │
         │      REST API Refactoring                                                            │
         │      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  0/18   0%             │
         │                                                                                      │
-        │      prd-auth.json                                                   ⏸ Paused       │
+        │      auth                                                            ⏸ Paused       │
         │      User Authentication System                                                      │
         │      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  4/12  33%             │
         │                                                                                      │
-        │      prd-mobile.json                                                 ✓ Complete     │
+        │      mobile                                                          ✓ Complete     │
         │      Mobile Responsive Layouts                                                       │
         │      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  6/6  100%             │
         │                                                                                      │
@@ -449,7 +680,7 @@ Modal showing all keyboard shortcuts. Toggle with `?` key.
 
 ```
 ╭─────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│  ralph                                                          ● RUNNING  Iteration 3/40  00:12:34    │
+│  chief                                                          ● RUNNING  Iteration 3/40  00:12:34    │
 ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
                 ╭─ Keyboard Shortcuts ────────────────────────────────────────────────╮
@@ -481,11 +712,11 @@ Modal showing all keyboard shortcuts. Toggle with `?` key.
 
 ## Empty State
 
-Shown when no PRD exists in the ralph/ directory.
+Shown when no PRDs exist in the .chief/prds/ directory.
 
 ```
 ╭─────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│  ralph                                                                                   No PRD loaded  │
+│  chief                                                                                   No PRD loaded  │
 ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
 
@@ -495,18 +726,15 @@ Shown when no PRD exists in the ralph/ directory.
                               │                                              │
                               │                  ◇                           │
                               │                                              │
-                              │         No PRD found in ./ralph/             │
+                              │         No PRDs found in .chief/prds/        │
                               │                                              │
                               │    Get started by creating a new PRD:        │
                               │                                              │
-                              │    $ ralph init                              │
+                              │    $ chief init                              │
                               │      Create a PRD interactively              │
                               │                                              │
-                              │    $ ralph init "user authentication"        │
+                              │    $ chief init "user authentication"        │
                               │      Generate PRD for a specific feature     │
-                              │                                              │
-                              │    $ ralph convert ./docs/spec.md            │
-                              │      Convert existing spec to prd.json       │
                               │                                              │
                               ╰──────────────────────────────────────────────╯
 
@@ -524,7 +752,7 @@ Shown when an error occurs (e.g., Claude crashes, file not found).
 
 ```
 ╭─────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│  ralph                                                            ✗ ERROR  Iteration 3/40  00:12:34    │
+│  chief                                                            ✗ ERROR  Iteration 3/40  00:12:34    │
 ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
 ╭─ Stories ─────────────────────────────────────╮ ╭─ Error ───────────────────────────────────────────────╮
@@ -539,7 +767,7 @@ Shown when an error occurs (e.g., Claude crashes, file not found).
 │  ○  US-108  Create navigation header          │ │                                                       │
 │  ○  US-109  Implement dark mode toggle        │ │  ─────────────────────────────────────────────────    │
 │  ○  US-110  Add page transition animations    │ │                                                       │
-│  ○  US-111  Create loading skeleton states    │ │  Check .output.log for full error details.            │
+│  ○  US-111  Create loading skeleton states    │ │  Check claude.log for full error details.             │
 │  ○  US-112  Build toast notification system   │ │                                                       │
 │                                               │ │                                                       │
 │  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  │ │                                                       │
@@ -547,18 +775,18 @@ Shown when an error occurs (e.g., Claude crashes, file not found).
 │                                               │ │                                                       │
 ╰───────────────────────────────────────────────╯ ╰───────────────────────────────────────────────────────╯
 
-  s Retry   t View Log   l Switch PRD   ? Help                                              prd.json   q Quit
+  s Retry   t View Log   l Switch PRD   ? Help                                              main   q Quit
 ```
 
 ---
 
 ## Interrupted Story Warning
 
-Shown when ralph starts and detects an `inProgress: true` story from a previous session.
+Shown when Chief starts and detects an `inProgress: true` story from a previous session.
 
 ```
 ╭─────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│  ralph                                                               ⚠ INTERRUPTED  prd.json           │
+│  chief                                                                 ⚠ INTERRUPTED  main             │
 ╰─────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
 ╭─ Stories ─────────────────────────────────────╮ ╭─ Notice ──────────────────────────────────────────────╮
@@ -575,7 +803,7 @@ Shown when ralph starts and detects an `inProgress: true` story from a previous 
                                                   │                                                       │
                                                   ╰───────────────────────────────────────────────────────╯
 
-  s Resume   l Switch PRD   ↑↓ Navigate   ? Help                                            prd.json   q Quit
+  s Resume   l Switch PRD   ↑↓ Navigate   ? Help                                            main   q Quit
 ```
 
 ---
@@ -586,7 +814,7 @@ Graceful degradation for narrower terminals — single column layout.
 
 ```
 ╭──────────────────────────────────────────────────────────────────────────────╮
-│  ralph                               ● RUNNING  Iteration 3/40  00:12:34    │
+│  chief                               ● RUNNING  Iteration 3/40  00:12:34    │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 
 ╭─ Stories ────────────────────────────────────────────────────────────────────╮
@@ -619,7 +847,7 @@ Graceful degradation for narrower terminals — single column layout.
 
 ---
 
-**Multiple loops:** Users can run multiple ralph instances on different PRDs in the same project. Each instance is independent. Trust the user to avoid file conflicts between PRDs.
+**Multiple loops:** Users can run multiple Chief instances on different PRDs in the same project. Each instance is independent. Trust the user to avoid file conflicts between PRDs.
 
 ## Keyboard Shortcuts
 
@@ -661,7 +889,7 @@ Graceful degradation for narrower terminals — single column layout.
 ## Notifications
 
 **Completion sound:** A small (~30KB) pleasant chime embedded in the binary, played when user attention is needed:
-- All stories complete successfully (`<ralph-complete/>` received)
+- All stories complete successfully (`<chief-complete/>` received)
 - Max iterations reached (loop stops, user needs to decide next steps)
 
 **Cross-platform playback:**
@@ -683,14 +911,14 @@ Sound can be disabled with `--no-sound` flag.
 ### Agent Prompt (embed/prompt.txt)
 
 ```markdown
-# Ralph Agent
+# Chief Agent
 
 You are an autonomous agent working through a product requirements document.
 
 ## Files
 
-- `ralph/prd.json` — The PRD with user stories
-- `ralph/progress.txt` — Progress log (read Codebase Patterns section first)
+- `.chief/prds/<name>/prd.json` — The PRD with user stories
+- `.chief/prds/<name>/progress.md` — Progress log (read Codebase Patterns section first)
 
 ## Task
 
@@ -703,7 +931,7 @@ You are an autonomous agent working through a product requirements document.
 5. For UI changes, verify in browser using Playwright if available
 6. Commit changes using conventional commits (see below)
 7. Update prd.json: set `passes: true` and `inProgress: false`
-8. Append to progress.txt (see format below)
+8. Append to progress.md (see format below)
 
 ## Conventional Commits
 
@@ -726,7 +954,7 @@ Rules:
 
 ## Progress Format
 
-Append to progress.txt (never replace):
+Append to progress.md (never replace):
 ```
 ## YYYY-MM-DD - US-XXX: [Title]
 - What was implemented
@@ -735,12 +963,12 @@ Append to progress.txt (never replace):
 ---
 ```
 
-Add reusable patterns to `## Codebase Patterns` at the top of progress.txt.
+Add reusable patterns to `## Codebase Patterns` at the top of progress.md.
 
 ## Completion
 
 After each story, check if ALL stories have `passes: true`.
-If complete, output: <ralph-complete/>
+If complete, output: <chief-complete/>
 
 ## Rules
 
@@ -752,7 +980,9 @@ If complete, output: <ralph-complete/>
 
 ### PRD Generator Prompt (embed/prd_skill.txt)
 
-Used by `ralph init` - launches Claude to interactively generate a PRD:
+Used by `chief init` and `chief edit` - launches an **interactive Claude Code session** with this prompt. The user takes over and collaborates with Claude to build the PRD. Chief just bootstraps the session and exits.
+
+For `chief edit`, the existing `.chief/prd.md` is included as context so Claude can modify it:
 
 ```markdown
 # PRD Generator
@@ -778,7 +1008,7 @@ You are helping create a Product Requirements Document.
    - Success metrics
    - Open questions
 
-3. Save to `ralph/prd.md`
+3. Save to `.chief/prds/<name>/prd.md`
 
 ## User Story Format
 
@@ -793,22 +1023,24 @@ Each story should be:
 
 ## Output
 
-Save the PRD as markdown to `ralph/prd.md`, then inform the user:
-"PRD saved to ralph/prd.md. Run `ralph convert` to generate prd.json"
+Save the PRD as markdown to `.chief/prds/<name>/prd.md`, then inform the user:
+"PRD saved to .chief/prds/<name>/prd.md"
+
+(Chief automatically converts to prd.json after this session ends)
 ```
 
 ### PRD Converter Prompt (embed/convert_skill.txt)
 
-Used by `ralph convert` - converts markdown PRD to JSON:
+Used internally by Chief for auto-conversion. Runs **one-shot** (non-interactive):
 
 ```markdown
 # PRD Converter
 
-Convert the PRD markdown file to ralph's prd.json format.
+Convert the PRD markdown file to Chief's prd.json format.
 
 ## Input
 
-Read the PRD from `ralph/prd.md` (or path provided by user).
+Read the PRD from `.chief/prds/<name>/prd.md`.
 
 ## Output Format
 
@@ -840,7 +1072,7 @@ Read the PRD from `ralph/prd.md` (or path provided by user).
 
 ## Save
 
-Save to `ralph/prd.json` and confirm to user.
+Save to `.chief/prds/<name>/prd.json` and confirm to user.
 ```
 
 ## Data Flow
@@ -848,7 +1080,7 @@ Save to `ralph/prd.json` and confirm to user.
 ```
 ┌──────────────┐     ┌───────────────┐     ┌─────────────┐
 │   PRD File   │────▶│  Agent Loop   │────▶│  Progress   │
-│  (prd.json)  │◀────│   (Claude)    │     │ (progress.txt)
+│  (prd.json)  │◀────│   (Claude)    │     │ (progress.md)
 └──────────────┘     └───────────────┘     └─────────────┘
        │                    │
        │  watches for       │  streams
@@ -907,7 +1139,7 @@ type Model struct {
 }
 ```
 
-**Note:** All persistent state lives in `prd.json`. The TUI model is ephemeral — if ralph restarts, it re-reads prd.json to determine current status (any story with `inProgress: true` was interrupted).
+**Note:** All persistent state lives in `prd.json`. The TUI model is ephemeral — if Chief restarts, it re-reads prd.json to determine current status (any story with `inProgress: true` was interrupted).
 
 ## Error Handling
 
@@ -916,7 +1148,7 @@ type Model struct {
 - Detect non-zero exit codes
 - Parse error messages from stream-json
 - Display in TUI with option to retry or skip
-- Log full error context to `.output.log`
+- Log full error context to `claude.log`
 
 ### Recovery
 
@@ -928,7 +1160,7 @@ type Model struct {
 ### File System Errors
 
 - Handle missing prd.json gracefully (show picker or init prompt)
-- Auto-create progress.txt if missing
+- Auto-create progress.md if missing
 - Watch for external file changes (hot reload PRD)
 
 ## Distribution
@@ -951,13 +1183,13 @@ Targets:
 
 ```bash
 # Homebrew (macOS/Linux)
-brew install ralph
+brew install chief
 
 # Go install
-go install github.com/snarktank/ralph@latest
+go install github.com/minicodemonkey/chief@latest
 
 # Download binary
-curl -fsSL https://ralph.sh/install.sh | sh
+curl -fsSL https://chief.codemonkey.io/install.sh | sh
 ```
 
 ## Implementation Phases
@@ -982,16 +1214,18 @@ curl -fsSL https://ralph.sh/install.sh | sh
 
 ### Phase 3: PRD Generation
 
-- [ ] `ralph init` command (Claude subprocess)
-- [ ] `ralph convert` command (Claude subprocess)
+- [ ] `chief init` command (launches interactive Claude session with embedded prompt)
+- [ ] `chief edit` command (launches interactive session with existing PRD as context)
+- [ ] Auto-conversion logic (prd.md → prd.json with progress protection)
+- [ ] Merge behavior for preserving story status
 - [ ] Embedded skill prompts
 
 ### Phase 4: Polish
 
 - [ ] Completion sound (embedded WAV)
 - [ ] Error recovery UX
-- [ ] `ralph status` quick command
-- [ ] `ralph list` quick command
+- [ ] `chief status` quick command
+- [ ] `chief list` quick command
 
 ### Phase 5: Distribution
 
@@ -999,6 +1233,324 @@ curl -fsSL https://ralph.sh/install.sh | sh
 - [ ] Homebrew formula
 - [ ] Install script
 - [ ] README and docs
+
+## Testing Strategy
+
+### Unit Tests
+
+**Parser tests** (`internal/loop/parser_test.go`):
+```go
+func TestParseLine_AssistantText(t *testing.T) {
+    line := `{"type":"assistant","message":{"content":[{"type":"text","text":"Hello"}]}}`
+    event := parseLine(line)
+    assert.Equal(t, AssistantText, event.Type)
+    assert.Equal(t, "Hello", event.Text)
+}
+
+func TestParseLine_ToolUse(t *testing.T) {
+    line := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"foo.txt"}}]}}`
+    event := parseLine(line)
+    assert.Equal(t, ToolStart, event.Type)
+    assert.Equal(t, "Read", event.Tool)
+}
+
+func TestParseLine_ChiefComplete(t *testing.T) {
+    line := `{"type":"assistant","message":{"content":[{"type":"text","text":"All done! <chief-complete/>"}]}}`
+    event := parseLine(line)
+    assert.Equal(t, Complete, event.Type)
+}
+```
+
+**PRD tests** (`internal/prd/loader_test.go`):
+```go
+func TestLoadPRD(t *testing.T) { ... }
+func TestPRD_AllComplete(t *testing.T) { ... }
+func TestPRD_NextStory_PrioritizesInProgress(t *testing.T) { ... }
+func TestPRD_NextStory_LowestPriority(t *testing.T) { ... }
+```
+
+**Auto-conversion tests** (`internal/prd/convert_test.go`):
+```go
+func TestNeedsConversion_NoJSON(t *testing.T) { ... }
+func TestNeedsConversion_MDNewer(t *testing.T) { ... }
+func TestNeedsConversion_JSONNewer(t *testing.T) { ... }
+func TestMergeProgress_MatchingIDs(t *testing.T) { ... }
+func TestMergeProgress_NewStories(t *testing.T) { ... }
+func TestMergeProgress_RemovedStories(t *testing.T) { ... }
+func TestHasProgress_Empty(t *testing.T) { ... }
+func TestHasProgress_WithPasses(t *testing.T) { ... }
+func TestHasProgress_WithInProgress(t *testing.T) { ... }
+```
+
+**TUI tests** (`internal/tui/app_test.go`):
+```go
+// Bubble Tea provides teatest for TUI testing
+func TestDashboard_KeyboardNavigation(t *testing.T) {
+    m := NewModel(testPRD)
+    m, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+    assert.Equal(t, 1, m.selectedTask)
+}
+
+func TestDashboard_StartStopControls(t *testing.T) { ... }
+func TestLogView_Scrolling(t *testing.T) { ... }
+```
+
+### Integration Tests
+
+**Loop integration** (`internal/loop/loop_test.go`):
+```go
+func TestLoop_MockClaude(t *testing.T) {
+    // Create a mock "claude" script that outputs predefined stream-json
+    mockClaude := createMockClaude(t, []string{
+        `{"type":"assistant","message":{"content":[{"type":"text","text":"Working..."}]}}`,
+        `{"type":"result","result":"Done"}`,
+    })
+    defer mockClaude.Cleanup()
+
+    loop := NewLoop(testPRDPath, WithClaudePath(mockClaude.Path))
+    events := collectEvents(loop.Run(context.Background()))
+
+    assert.Contains(t, events, Event{Type: AssistantText, Text: "Working..."})
+}
+```
+
+**File watching** (`internal/prd/watcher_test.go`):
+```go
+func TestWatcher_DetectsChanges(t *testing.T) {
+    // Write prd.json, start watcher, modify file, verify event
+}
+```
+
+### End-to-End Tests
+
+**E2E with real Claude** (`e2e/e2e_test.go`):
+```go
+// +build e2e
+
+func TestE2E_SingleStory(t *testing.T) {
+    // Requires ANTHROPIC_API_KEY
+    // Uses a minimal test PRD with one trivial story
+    // Verifies: story completes, prd.json updated, progress.md written
+}
+```
+
+Run E2E tests explicitly: `go test -tags=e2e ./e2e/...`
+
+### Test Fixtures
+
+```
+testdata/
+├── prds/
+│   ├── valid.json              # Well-formed PRD
+│   ├── partial_progress.json   # PRD with some stories complete
+│   ├── all_complete.json       # PRD with all stories complete
+│   ├── in_progress.json        # PRD with interrupted story
+│   └── invalid.json            # Malformed JSON
+├── stream/
+│   ├── simple_story.jsonl      # Mock Claude output for one story
+│   ├── tool_calls.jsonl        # Output with various tool uses
+│   ├── error_exit.jsonl        # Output ending in error
+│   └── complete.jsonl          # Output with <chief-complete/>
+└── markdown/
+    ├── simple.md               # Simple PRD markdown
+    └── complex.md              # PRD with many stories
+```
+
+### CI Pipeline
+
+```yaml
+# .github/workflows/test.yml
+name: Test
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      - run: go test -race -coverprofile=coverage.out ./...
+      - run: go build ./cmd/chief
+
+  e2e:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+      - run: go test -tags=e2e ./e2e/...
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+
+### What We Don't Test
+
+- Claude's behavior (that's Anthropic's job)
+- Actual file edits made by Claude (too flaky, too slow)
+- Sound playback (manual verification)
+- Complex TUI interactions (manual verification, use teatest for basics)
+
+## Documentation
+
+### README.md Structure
+
+```markdown
+# Chief 👮
+
+Autonomous agent loop for working through PRDs with Claude Code.
+
+*Named after Chief Wiggum, Ralph Wiggum's dad from The Simpsons.*
+
+## Quick Start
+
+\`\`\`bash
+# Install
+brew install chief
+
+# Create a PRD interactively
+chief init
+
+# Run the agent loop
+chief
+\`\`\`
+
+## How It Works
+
+Chief orchestrates Claude Code to work through user stories autonomously:
+
+1. You write a PRD describing what you want built
+2. Chief converts it to machine-readable format
+3. Claude works through each story, one at a time
+4. You watch progress in a beautiful TUI
+
+[Diagram: PRD → Chief Loop → Claude → Code Changes → Repeat]
+
+## Installation
+
+[brew, go install, binary download]
+
+## Usage
+
+### Creating a PRD
+
+\`\`\`bash
+chief init                    # Interactive PRD creation
+chief init auth               # Create PRD named "auth"
+chief init auth "OAuth login" # With initial context
+chief edit                    # Edit existing PRD
+\`\`\`
+
+### Running the Loop
+
+\`\`\`bash
+chief                         # Run default PRD
+chief auth                    # Run specific PRD
+chief --max-iterations 20     # Limit iterations
+\`\`\`
+
+### Keyboard Controls
+
+| Key | Action |
+|-----|--------|
+| s | Start/Resume |
+| p | Pause |
+| x | Stop |
+| t | Toggle log view |
+| ? | Help |
+| q | Quit |
+
+## PRD Format
+
+[Link to detailed PRD format docs]
+
+## Configuration
+
+[CLI flags only, no config file]
+
+## Troubleshooting
+
+[Common issues and solutions]
+
+## License
+
+MIT
+```
+
+### Inline Code Documentation
+
+**Every public function gets a doc comment:**
+```go
+// Run executes the agent loop until all stories are complete or max iterations
+// is reached. It spawns Claude as a subprocess and streams output to the TUI
+// via the events channel. The loop can be paused with Pause() or stopped
+// immediately with Stop().
+//
+// Run blocks until the loop completes. Check the returned error and the final
+// event to determine why the loop ended (Complete, MaxIterationsReached, or Error).
+func (l *Loop) Run(ctx context.Context) error {
+```
+
+**Complex logic gets inline comments:**
+```go
+// parseLine extracts events from Claude's stream-json output.
+// The format is one JSON object per line with these types:
+//   - "assistant": Claude's response (text or tool_use)
+//   - "tool_result": Result of a tool call
+//   - "result": Final result of the conversation
+func (l *Loop) parseLine(line string) *Event {
+```
+
+### Architecture Decision Records (ADRs)
+
+Store in `docs/adr/`:
+
+```markdown
+# ADR-001: Go + Bubble Tea for TUI
+
+## Status
+Accepted
+
+## Context
+We need a cross-platform TUI with single-binary distribution...
+
+## Decision
+Use Go with the Bubble Tea framework...
+
+## Consequences
+- Pro: Single binary, easy distribution
+- Pro: Excellent TUI ecosystem
+- Con: More verbose than Python/Node alternatives
+```
+
+Key ADRs to write:
+- ADR-001: Go + Bubble Tea for TUI
+- ADR-002: prd.md as source of truth (auto-conversion)
+- ADR-003: Stream-json for Claude output parsing
+- ADR-004: Single iteration = single Claude invocation
+- ADR-005: No branch management (keep it simple)
+
+### Man Page
+
+Generate from README using `ronn` or similar:
+```bash
+chief(1)                    Chief Manual                    chief(1)
+
+NAME
+       chief - autonomous agent loop for PRDs
+
+SYNOPSIS
+       chief [options] [prd-name]
+       chief init [name] [context]
+       chief edit [name]
+       chief status [name]
+       chief list
+
+DESCRIPTION
+       Chief orchestrates Claude Code to work through product
+       requirements documents autonomously...
+```
 
 ## Future Enhancements (Post-MVP)
 

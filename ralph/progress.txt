@@ -1,0 +1,8 @@
+# Chief TUI - Progress Log
+
+## Codebase Patterns
+
+*Add reusable patterns discovered during implementation here.*
+
+---
+
