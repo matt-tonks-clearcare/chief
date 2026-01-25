@@ -417,3 +417,35 @@
   - --merge and --force flags are separate from the name argument (non-flag parsing needed)
 ---
 
+## 2026-01-25 - US-018
+- What was implemented:
+  - Created embed/convert_prompt.txt with detailed converter prompt for prd.md to prd.json conversion
+  - Updated embed/embed.go with GetConvertPrompt() function using //go:embed
+  - Created internal/prd/generator.go with Convert() and NeedsConversion() functions
+  - Convert() invokes Claude one-shot (--dangerously-skip-permissions -p --output-format text) for non-interactive conversion
+  - NeedsConversion() compares modification times of prd.md and prd.json
+  - Added validateJSON() function to verify conversion output is valid JSON
+  - Added PRD structure validation using LoadPRD() after conversion
+  - Refactored internal/cmd/init.go to delegate to the new prd.Convert() function
+  - Updated cmd/chief/main.go to check NeedsConversion() before starting TUI
+  - Auto-conversion runs: after chief init, after chief edit, before chief run (if prd.md newer)
+  - Comprehensive unit tests for cleanJSONOutput, validateJSON, NeedsConversion functions
+  - Added tests for GetConvertPrompt, GetInitPrompt, GetEditPrompt in embed_test.go
+- Files changed:
+  - embed/convert_prompt.txt (new)
+  - embed/embed.go (modified - added GetConvertPrompt)
+  - embed/embed_test.go (modified - added tests for all prompt functions)
+  - internal/prd/generator.go (new)
+  - internal/prd/generator_test.go (new)
+  - internal/cmd/init.go (modified - refactored to use prd.Convert)
+  - internal/cmd/init_test.go (modified - removed duplicate cleanJSONOutput test)
+  - cmd/chief/main.go (modified - added pre-run conversion check)
+- **Learnings for future iterations:**
+  - Use internal/prd package for PRD-related logic (loading, saving, conversion, watching)
+  - NeedsConversion() pattern: compare file modification times with os.Stat().ModTime()
+  - JSON validation: use json.RawMessage for quick validity check, then LoadPRD() for structure validation
+  - Converter prompt should instruct Claude to read the file and output only JSON (no code blocks)
+  - cleanJSONOutput() handles edge cases where Claude outputs markdown code blocks anyway
+  - Pre-run conversion in main.go ensures prd.json is always up-to-date when TUI starts
+---
+
