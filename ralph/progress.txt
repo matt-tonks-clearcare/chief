@@ -295,3 +295,24 @@
   - Context-sensitive shortcuts in modals improve usability (show start/pause/stop based on selected item's state)
 ---
 
+## 2026-01-25 - US-013
+- What was implemented:
+  - Created internal/tui/help.go with HelpOverlay struct, ShortcutCategory, and Shortcut types
+  - Implemented ? key toggle from any view (Dashboard, Log, Picker)
+  - Display shortcuts organized by categories: Loop Control, Views, Navigation, Scrolling, General
+  - Context-aware shortcuts: shows different categories based on current view mode
+  - Esc or ? closes the overlay, returns to previous view
+  - Centered modal with rounded border and styled header/footer
+  - Added ViewHelp mode and previousViewMode field to track view to return to
+  - Updated footer in all views to show ?: help shortcut
+- Files changed:
+  - internal/tui/help.go (new - HelpOverlay, ShortcutCategory, Shortcut, GetCategories, Render)
+  - internal/tui/app.go (modified - ViewHelp mode, helpOverlay integration, ? key handling)
+  - internal/tui/dashboard.go (modified - added ?: help to footer shortcuts)
+- **Learnings for future iterations:**
+  - Modal overlays need to remember previous view to return to (use previousViewMode pattern)
+  - Handle overlay key first before view-specific key handling to ensure it works from any view
+  - Two-column layout for shortcuts: split categories using (len+1)/2 for balanced columns
+  - Help context should match the view it was opened from, not the current ViewHelp mode
+---
+
