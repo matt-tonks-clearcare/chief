@@ -1,0 +1,6 @@
+# Binaries
+/chief
+*.exe
+
+# Log files
+*.log
