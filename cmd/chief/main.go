@@ -69,10 +69,50 @@ func main() {
 	runTUIWithOptions(opts)
 }
 
+// findAvailablePRD looks for any available PRD in .chief/prds/
+// Returns the path to the first PRD found, or empty string if none exist.
+func findAvailablePRD() string {
+	prdsDir := ".chief/prds"
+	entries, err := os.ReadDir(prdsDir)
+	if err != nil {
+		return ""
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			prdPath := filepath.Join(prdsDir, entry.Name(), "prd.json")
+			if _, err := os.Stat(prdPath); err == nil {
+				return prdPath
+			}
+		}
+	}
+	return ""
+}
+
+// listAvailablePRDs returns all PRD names in .chief/prds/
+func listAvailablePRDs() []string {
+	prdsDir := ".chief/prds"
+	entries, err := os.ReadDir(prdsDir)
+	if err != nil {
+		return nil
+	}
+
+	var names []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			prdPath := filepath.Join(prdsDir, entry.Name(), "prd.json")
+			if _, err := os.Stat(prdPath); err == nil {
+				names = append(names, entry.Name())
+			}
+		}
+	}
+	return names
+}
+
 // parseTUIFlags parses command-line flags for TUI mode
 func parseTUIFlags() *TUIOptions {
 	opts := &TUIOptions{
-		PRDPath:       ".chief/prds/main/prd.json",
+		PRDPath:       "", // Will be resolved later
 		MaxIterations: 10,
 		NoSound:       false,
 		Verbose:       false,
@@ -226,6 +266,28 @@ func runList() {
 
 func runTUIWithOptions(opts *TUIOptions) {
 	prdPath := opts.PRDPath
+
+	// If no PRD specified, try to find one
+	if prdPath == "" {
+		// Try "main" first
+		mainPath := ".chief/prds/main/prd.json"
+		if _, err := os.Stat(mainPath); err == nil {
+			prdPath = mainPath
+		} else {
+			// Look for any available PRD
+			prdPath = findAvailablePRD()
+		}
+
+		// If still no PRD found, show helpful message
+		if prdPath == "" {
+			fmt.Println("No PRD found. To get started, create your first PRD:")
+			fmt.Println()
+			fmt.Println("  chief init              # Create default PRD")
+			fmt.Println("  chief init <name>       # Create named PRD")
+			os.Exit(1)
+		}
+	}
+
 	prdDir := filepath.Dir(prdPath)
 
 	// Check if prd.md is newer than prd.json and run conversion if needed
@@ -250,8 +312,18 @@ func runTUIWithOptions(opts *TUIOptions) {
 	if err != nil {
 		// Check if this is a missing PRD file error
 		if os.IsNotExist(err) || strings.Contains(err.Error(), "no such file") {
-			fmt.Println("No PRD found. To get started, create your first PRD:")
+			fmt.Printf("PRD not found: %s\n", prdPath)
 			fmt.Println()
+			// Show available PRDs if any exist
+			available := listAvailablePRDs()
+			if len(available) > 0 {
+				fmt.Println("Available PRDs:")
+				for _, name := range available {
+					fmt.Printf("  chief %s\n", name)
+				}
+				fmt.Println()
+			}
+			fmt.Println("Or create a new one:")
 			fmt.Println("  chief init              # Create default PRD")
 			fmt.Println("  chief init <name>       # Create named PRD")
 		} else {
