@@ -107,11 +107,14 @@ type App struct {
 	baseDir string // Base directory for .chief/prds/
 
 	// Help overlay
-	helpOverlay     *HelpOverlay
+	helpOverlay      *HelpOverlay
 	previousViewMode ViewMode // View to return to when closing help
 
 	// Completion notification callback
 	onCompletion func(prdName string)
+
+	// Verbose mode - show raw Claude output
+	verbose bool
 }
 
 // NewApp creates a new App with the given PRD.
@@ -179,6 +182,11 @@ func (a *App) SetCompletionCallback(fn func(prdName string)) {
 	if a.manager != nil {
 		a.manager.SetCompletionCallback(fn)
 	}
+}
+
+// SetVerbose enables or disables verbose mode (raw Claude output in log).
+func (a *App) SetVerbose(v bool) {
+	a.verbose = v
 }
 
 // Init initializes the App.
