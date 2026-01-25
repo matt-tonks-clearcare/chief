@@ -248,7 +248,10 @@ func runTUIWithOptions(opts *TUIOptions) {
 
 	app, err := tui.NewAppWithOptions(prdPath, opts.MaxIterations)
 	if err != nil {
-		fmt.Printf("Error loading PRD: %v\n", err)
+		fmt.Printf("Error: %v\n", err)
+		fmt.Println("\nTo get started, create a PRD first:")
+		fmt.Println("  chief init              # Create default PRD")
+		fmt.Println("  chief init <name>       # Create named PRD")
 		os.Exit(1)
 	}
 

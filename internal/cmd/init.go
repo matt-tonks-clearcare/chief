@@ -83,7 +83,8 @@ func RunInit(opts InitOptions) error {
 
 // runInteractiveClaude launches an interactive Claude session in the specified directory.
 func runInteractiveClaude(workDir, prompt string) error {
-	cmd := exec.Command("claude", "-p", prompt)
+	// Pass prompt as argument (not -p which is print mode / non-interactive)
+	cmd := exec.Command("claude", prompt)
 	cmd.Dir = workDir
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
