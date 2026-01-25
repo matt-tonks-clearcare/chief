@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/minicodemonkey/chief/embed"
 	"github.com/minicodemonkey/chief/internal/prd"
 )
 
@@ -34,6 +35,13 @@ func NewLoop(prdPath, prompt string, maxIter int) *Loop {
 		maxIter: maxIter,
 		events:  make(chan Event, 100),
 	}
+}
+
+// NewLoopWithEmbeddedPrompt creates a new Loop instance using the embedded agent prompt.
+// The PRD path placeholder in the prompt is automatically substituted.
+func NewLoopWithEmbeddedPrompt(prdPath string, maxIter int) *Loop {
+	prompt := embed.GetPrompt(prdPath)
+	return NewLoop(prdPath, prompt, maxIter)
 }
 
 // Events returns the channel for receiving events from the loop.
