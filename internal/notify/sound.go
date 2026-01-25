@@ -1,5 +1,8 @@
 //go:build darwin || windows || (linux && cgo)
 
+// Package notify provides audio notifications for Chief.
+// It plays a completion sound when PRDs finish all their user stories.
+// The sound is embedded in the binary and played using oto/v2.
 package notify
 
 import (

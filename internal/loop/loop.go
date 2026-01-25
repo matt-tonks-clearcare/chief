@@ -1,3 +1,7 @@
+// Package loop provides the core agent loop that orchestrates Claude Code
+// to implement user stories. It includes the main Loop struct for single
+// PRD execution, Manager for parallel PRD execution, and Parser for
+// processing Claude's stream-json output.
 package loop
 
 import (

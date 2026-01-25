@@ -1,12 +1,12 @@
 module github.com/minicodemonkey/chief
 
-go 1.25.3
+go 1.24.0
 
 require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/fsnotify/fsnotify v1.9.0
-	github.com/hajimehoshi/oto/v2 v2.4.3
+	github.com/hajimehoshi/oto/v2 v2.4.2
 )
 
 require (

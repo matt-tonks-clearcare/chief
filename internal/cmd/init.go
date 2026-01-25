@@ -1,3 +1,6 @@
+// Package cmd provides CLI command implementations for Chief.
+// This includes init, edit, status, and list commands that can be
+// run from the command line without launching the full TUI.
 package cmd
 
 import (

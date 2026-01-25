@@ -1,3 +1,6 @@
+// Package prd provides types and utilities for working with Product
+// Requirements Documents (PRDs). It includes loading, saving, watching
+// for changes, and converting between prd.md and prd.json formats.
 package prd
 
 // UserStory represents a single user story in a PRD.

@@ -1,3 +1,5 @@
+// Package embed provides embedded prompt templates used by Chief.
+// All prompts are embedded at compile time using Go's embed directive.
 package embed
 
 import (

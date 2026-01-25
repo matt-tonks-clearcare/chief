@@ -1,3 +1,6 @@
+// Package tui provides the terminal user interface for Chief.
+// It includes the main Bubble Tea application, dashboard views,
+// log viewer, PRD picker, help overlay, and consistent styling.
 package tui
 
 import "github.com/charmbracelet/lipgloss"
