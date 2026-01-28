@@ -12,18 +12,7 @@ Complete schema documentation for `prd.json`.
 interface PRD {
   project: string;          // Project name
   description: string;      // Brief description
-  settings?: Settings;      // Optional project settings
   userStories: UserStory[]; // Array of user stories
-}
-```
-
-## Settings Object
-
-```typescript
-interface Settings {
-  testCommand?: string;   // Command to run tests
-  buildCommand?: string;  // Command to build project
-  lintCommand?: string;   // Command to lint code
 }
 ```
 
@@ -47,11 +36,6 @@ interface UserStory {
 {
   "project": "User Authentication",
   "description": "Complete auth system with login, registration, and password reset",
-  "settings": {
-    "testCommand": "npm test",
-    "buildCommand": "npm run build",
-    "lintCommand": "npm run lint"
-  },
   "userStories": [
     {
       "id": "US-001",

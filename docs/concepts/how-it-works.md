@@ -1,10 +1,10 @@
 ---
-description: Learn how Chief works as an autonomous PRD agent, transforming product requirements into working code through the Ralph Loop execution model.
+description: Learn how Chief works as an autonomous coding agent, transforming your requirements into working code through an automated execution loop.
 ---
 
 # How Chief Works
 
-Chief is an autonomous PRD agent that transforms your product requirements into working code—without constant back-and-forth prompting.
+Chief is an autonomous coding agent that transforms your requirements into working code, without constant back-and-forth prompting.
 
 ::: tip Background
 For the motivation behind Chief and a deeper exploration of autonomous coding agents, read the blog post: [Introducing Chief: Autonomous PRD Agent](https://minicodemonkey.com/blog/2025/chief)
@@ -12,42 +12,62 @@ For the motivation behind Chief and a deeper exploration of autonomous coding ag
 
 ## The Core Concept
 
-Traditional AI coding assistants require constant interaction. You prompt, Claude responds, you prompt again. It's collaborative, but it's not autonomous.
+Traditional AI coding assistants hit a wall: the context window. As your conversation grows, the AI loses track of earlier details, makes contradictory decisions, or simply runs out of space. Long coding sessions become unwieldy.
 
-Chief takes a different approach: **define what you want upfront, then step back and watch it happen.**
+Chief takes a different approach using a [Ralph Wiggum loop](https://ghuntley.com/ralph/): **each iteration starts fresh, but nothing is forgotten.**
 
-You write a Product Requirements Document (PRD) describing what you want to build, broken into user stories. Chief reads the PRD, invokes Claude Code, and orchestrates the entire process—one story at a time.
+You describe what you want to build as a series of user stories. Chief works through them one at a time, spawning a new Claude session for each. Between iterations, Chief persists state to a `progress.md` file: what was built, which files changed, patterns discovered, and context for future work. The next iteration loads this history, giving Claude everything it needs without the baggage of a bloated conversation.
 
-## The Flow
+Running `chief` opens a TUI dashboard where you can review your project, then press `s` to start the loop.
+
+## The Execution Loop
+
+Chief works through your stories methodically. Each iteration focuses on a single story:
 
 ```
-┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐
-│   You    │───▶│   PRD    │───▶│  Chief   │───▶│  Claude  │───▶│   Code   │
-│  Write   │    │  (.json) │    │  (Loop)  │    │  (Agent) │    │ (Commits)│
-└──────────┘    └──────────┘    └──────────┘    └──────────┘    └──────────┘
+                ┌───────────────────────────────────────┐
+                │                                       │
+                ▼                                       │
+        ┌──────────────┐                                │
+        │  Pick Story  │                                │
+        │  (next todo) │                                │
+        └──────┬───────┘                                │
+               │                                        │
+               ▼                                        │
+        ┌──────────────┐                                │
+        │ Invoke Claude│                                │
+        │  with prompt │                                │
+        └──────┬───────┘                                │
+               │                                        │
+               ▼                                        │
+        ┌──────────────┐                                │
+        │    Claude    │                                │
+        │ codes & tests│                                │
+        └──────┬───────┘                                │
+               │                                        │
+               ▼                                        │
+        ┌──────────────┐                                │
+        │    Commit    │                                │
+        │   changes    │                                │
+        └──────┬───────┘                                │
+               │                                        │
+               ▼                                        │
+        ┌──────────────┐           more stories         │
+        │ Mark Complete├────────────────────────────────┘
+        └──────┬───────┘
+               │ all done
+               ▼
+           ✓ Finished
 ```
 
-Here's what each component does:
+Here's what happens in each step:
 
-| Component | Role |
-|-----------|------|
-| **You** | Write the PRD with user stories and acceptance criteria |
-| **PRD** | Machine-readable spec that defines what needs to be built |
-| **Chief** | Orchestrator that manages the loop and tracks progress |
-| **Claude** | AI agent that reads context, writes code, runs tests, and commits |
-| **Code** | The end result—working code committed to your repository |
-
-## One Iteration, One Story
-
-Chief works through your PRD methodically. Each "iteration" focuses on a single user story:
-
-1. **Read State** — Chief examines `prd.json` to find the highest-priority story where `passes: false`
-2. **Build Prompt** — Constructs a prompt with instructions, the story details, and project context
-3. **Invoke Claude** — Spawns Claude Code with the assembled prompt
-4. **Execute** — Claude reads files, writes code, runs tests, and fixes issues until the story is complete
-5. **Commit** — Claude commits the changes with a conventional commit message like `feat: [US-001] - Feature Title`
-6. **Update PRD** — Marks the story as `passes: true` and records progress
-7. **Repeat** — Chief checks for more incomplete stories and continues
+1. **Pick Story**: Chief finds the highest-priority incomplete story
+2. **Invoke Claude**: Constructs a prompt with the story details and project context, then spawns Claude Code
+3. **Claude Codes**: Claude reads files, writes code, runs tests, and fixes issues until the story is complete
+4. **Commit**: Claude commits the changes with a message like `feat: [US-001] - Feature Title`
+5. **Mark Complete**: Chief updates the project state and records progress
+6. **Repeat**: If more stories remain, the loop continues
 
 This isolation is intentional. If something breaks, you know exactly which story caused it. Each commit represents one complete feature.
 
@@ -63,31 +83,28 @@ feat: [US-003] - Add user authentication
 - Created auth middleware
 ```
 
-Your git history becomes a timeline of features, matching 1:1 with your PRD stories.
+Your git history becomes a timeline of features, matching 1:1 with your stories.
 
 ## Progress Tracking
 
-Chief maintains a `progress.md` file in each PRD directory. After every iteration, Claude appends:
+The `progress.md` file is what makes fresh context windows possible. After every iteration, Claude appends:
 
 - What was implemented
 - Which files changed
 - Learnings for future iterations (patterns discovered, gotchas, context)
 
-This creates institutional memory. Later iterations (and future developers) can reference this to understand decisions and avoid repeating mistakes.
+When the next iteration starts, Claude reads this file and immediately understands the project's history, without needing thousands of tokens of prior conversation. This gives you the benefits of long-running context (consistency, institutional memory) without the downsides (context overflow, degraded performance).
 
-## Why This Works
+## Staying in Control
 
-The autonomous approach enables things that interactive prompting can't:
+Autonomous doesn't mean unattended. The TUI lets you:
 
-- **Background execution** — SSH into a server, run `chief`, disconnect. Come back to finished features.
-- **Predictable output** — Conventional commits, structured progress tracking, consistent patterns.
-- **Resumable work** — Stop anytime (Ctrl+C), continue exactly where you left off later.
-- **Parallel development** — Run Chief on multiple PRDs in different terminal sessions.
-
-You define intent through the PRD. Chief handles the execution loop. Claude does the actual coding.
+- **Start / Pause / Stop**: Press `s` to start, `p` to pause after the current story, `x` to stop immediately
+- **Switch projects**: Press `n` to cycle through projects, or `1-9` to jump directly
+- **Resume anytime**: Walk away, come back, press `s`. Chief picks up where you left off
 
 ## Further Reading
 
-- [The Ralph Loop](/concepts/ralph-loop) — Deep dive into the execution loop mechanics
-- [PRD Format](/concepts/prd-format) — How to write effective PRDs with good user stories
-- [The .chief Directory](/concepts/chief-directory) — Understanding where state is stored
+- [The Ralph Loop](/concepts/ralph-loop): Deep dive into the execution loop mechanics
+- [PRD Format](/concepts/prd-format): How to structure your project with effective user stories
+- [The .chief Directory](/concepts/chief-directory): Understanding where state is stored

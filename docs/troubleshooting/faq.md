@@ -28,24 +28,25 @@ Chief uses whatever model is configured in Claude Code. By default, this is Clau
 
 ### Can I run Chief on a remote server?
 
-Yes! Chief works great on remote servers. SSH in, run `chief`, and let it work. Use `screen` or `tmux` if you want to disconnect.
+Yes! Chief works great on remote servers. SSH in, run `chief`, press `s` to start the loop, and let it work. Use `screen` or `tmux` if you want to disconnect.
 
 ```bash
 ssh my-server
 tmux new -s chief
-chief --dangerously-skip-permissions
+chief
+# Press 's' to start the loop
 # Ctrl+B D to detach
 ```
 
 ### How do I resume after stopping?
 
-Just run `chief` again. It reads state from `prd.json` and continues where it left off.
+Run `chief` again and press `s` to start. It reads state from `prd.json` and continues where it left off.
 
 ### Can I edit the PRD while Chief is running?
 
 Yes, but be careful. Chief re-reads `prd.json` between iterations. Edits to the current story might cause confusion.
 
-Best practice: pause Chief (Ctrl+C), edit, then resume.
+Best practice: pause Chief with `p` (or stop with `x`), edit, then press `s` to resume.
 
 ### Can I have multiple PRDs?
 
@@ -57,7 +58,7 @@ Yes. Create separate directories under `.chief/prds/`:
 └── feature-b/
 ```
 
-Run with: `chief --prd feature-a`
+Run with `chief feature-a` or use the TUI: press `n` to open the PRD picker, or `1-9` to quickly switch between tabs. Multiple PRDs can run in parallel.
 
 ### How do I skip a story?
 
@@ -102,7 +103,7 @@ git revert HEAD
 
 # Or reset and re-run
 git reset --hard HEAD~1
-chief
+chief  # then press 's' to start
 ```
 
 ### Does Chief work with any language?

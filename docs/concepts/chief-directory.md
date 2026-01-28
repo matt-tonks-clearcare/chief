@@ -30,7 +30,7 @@ The root `.chief/` directory contains a single `prds/` subdirectory. Each PRD ge
 Every PRD lives in its own named folder under `.chief/prds/`. The folder name is what you pass to Chief when running a specific PRD:
 
 ```bash
-chief --prd my-feature
+chief my-feature
 ```
 
 Chief uses this folder as the working context for the entire run. All reads and writes happen within this folder — the PRD state, progress log, and Claude output are all scoped to the specific PRD being executed.
@@ -161,37 +161,53 @@ A single project can have multiple PRDs, each tracking a separate feature or ini
 Run a specific PRD by name:
 
 ```bash
-chief --prd auth-system
-chief --prd payment-integration
+chief auth-system
+chief payment-integration
 ```
 
 Each PRD tracks its own stories, progress, and logs independently. You can run them sequentially or work on different PRDs over time as your project evolves.
 
 ## Git Considerations
 
-### What to Commit
+You have two options depending on whether you want to share Chief state with your team.
 
-| File | Commit? | Why |
-|------|---------|-----|
-| `prd.md` | **Yes** | Your requirements — the source of truth for what to build |
-| `prd.json` | **Yes** | Story state and progress — lets collaborators see what's done |
-| `progress.md` | **Yes** | Implementation history and learnings — valuable project context |
+### Option 1: Keep It Private
 
-### What to Ignore
-
-| File | Ignore? | Why |
-|------|---------|-----|
-| `claude.log` | **Yes** | Large, regenerated each run, contains raw debug output |
-
-Add this to your `.gitignore`:
+If Chief is just for your personal workflow, ignore the entire directory:
 
 ```gitignore
+# In your repo's .gitignore
+.chief/
+```
+
+Or add it to your global gitignore to keep it private across all projects without modifying each repo:
+
+```bash
+# Check if you have a global gitignore configured
+git config --global core.excludesFile
+
+# If not set, create one
+git config --global core.excludesFile ~/.gitignore
+
+# Then add .chief/ to that file
+echo ".chief/" >> "$(git config --global core.excludesFile)"
+```
+
+### Option 2: Share With Your Team
+
+If you want collaborators to see progress and continue where you left off, commit everything except the log files:
+
+```gitignore
+# In your repo's .gitignore
 .chief/prds/*/claude.log
 ```
 
-::: tip
-Committing `prd.json` and `progress.md` means your team can see exactly which stories are complete and what was learned during implementation. This is especially useful when multiple people are contributing to the same project.
-:::
+This shares:
+- `prd.md`: Your requirements, the source of truth for what to build
+- `prd.json`: Story state and progress, so collaborators see what's done
+- `progress.md`: Implementation history and learnings, valuable project context
+
+The `claude.log` files are large, regenerated each run, and only useful for debugging.
 
 ## What's Next
 

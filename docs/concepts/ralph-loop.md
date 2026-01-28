@@ -4,7 +4,7 @@ description: Deep dive into the Ralph Loop, Chief's core execution model that dr
 
 # The Ralph Loop
 
-The Ralph Loop is Chief's core execution model—a continuous cycle that drives Claude to complete user stories one by one. It's the engine that makes autonomous development possible.
+The Ralph Loop is Chief's core execution model: a continuous cycle that drives Claude to complete user stories one by one. It's the engine that makes autonomous development possible.
 
 ::: tip Background Reading
 For the motivation and philosophy behind this approach, read the blog post [Ship Features in Your Sleep with Ralph Loops](https://larswadefalk.com/ship-features-in-your-sleep-with-ralph-loops/).
@@ -14,26 +14,55 @@ For the motivation and philosophy behind this approach, read the blog post [Ship
 
 Here's the complete Ralph Loop as a flowchart:
 
-```mermaid
-flowchart TD
-    START([Start Chief]) --> READ[Read State]
-    READ --> SELECT{Select Next Story}
-    SELECT -->|Story Found| BUILD[Build Prompt]
-    SELECT -->|All Complete| DONE([All Stories Done])
-    BUILD --> INVOKE[Invoke Claude Code]
-    INVOKE --> STREAM[Stream & Parse Output]
-    STREAM --> WATCH{Watch for Signal}
-    WATCH -->|No Signal Yet| STREAM
-    WATCH -->|chief-complete| UPDATE[Update PRD]
-    UPDATE --> LIMIT{Max Iterations?}
-    LIMIT -->|No| READ
-    LIMIT -->|Yes| STOP([Stop - Limit Reached])
-
-    style START fill:#9ece6a,stroke:#1a1b26,color:#1a1b26
-    style DONE fill:#9ece6a,stroke:#1a1b26,color:#1a1b26
-    style STOP fill:#f7768e,stroke:#1a1b26,color:#1a1b26
-    style BUILD fill:#7aa2f7,stroke:#1a1b26,color:#1a1b26
-    style INVOKE fill:#bb9af7,stroke:#1a1b26,color:#1a1b26
+```
+    ┌─────────────┐
+    │ Start Chief │
+    └──────┬──────┘
+           │
+           ▼
+    ┌─────────────┐
+    │  Show TUI   │
+    └──────┬──────┘
+           │
+           ▼
+    ┌─────────────┐
+    │ Press 's'   │◀─────────────────────────────────────┐
+    └──────┬──────┘                                      │
+           │                                             │
+           ▼                                             │
+    ┌─────────────┐                                      │
+    │ Read State  │                                      │
+    └──────┬──────┘                                      │
+           │                                             │
+           ▼                                             │
+    ╔═════════════╗      all complete    ┌────────────┐  │
+    ║ Next Story? ║─────────────────────▶│  ✓ Done    │  │
+    ╚══════╤══════╝                      └────────────┘  │
+           │ story found                        ▲        │
+           ▼                                    │        │
+    ┌─────────────┐                             │        │
+    │Build Prompt │                             │        │
+    └──────┬──────┘                             │        │
+           │                                    │        │
+           ▼                                    │        │
+    ┌─────────────┐                             │        │
+    │Invoke Claude│                             │        │
+    └──────┬──────┘                             │        │
+           │                                    │        │
+           ▼                                    │        │
+    ┌─────────────┐    <chief-complete/>        │        │
+    │Stream Output├────────────────────────────▶┘        │
+    └──────┬──────┘                                      │
+           │ session ends                                │
+           ▼                                             │
+    ╔═════════════╗       no            ┌────────────┐   │
+    ║ Max Iters?  ║────────────────────▶│  Continue  │───┘
+    ╚══════╤══════╝                     └────────────┘
+           │ yes
+           ▼
+    ┌─────────────┐
+    │  ✗ Stop     │
+    └─────────────┘
 ```
 
 ## Step by Step
@@ -47,7 +76,7 @@ Chief reads all the files it needs to understand the current situation:
 | File | What Chief Learns |
 |------|-------------------|
 | `prd.json` | Which stories are complete (`passes: true`), which are pending, and which is in progress |
-| `progress.md` | What happened in previous iterations—learnings, patterns, and context |
+| `progress.md` | What happened in previous iterations: learnings, patterns, and context |
 | Codebase files | Current state of the code (via Claude's file reading) |
 
 This step ensures Claude always has fresh, accurate information about what's done and what's left to do.
@@ -66,10 +95,9 @@ If a story has `inProgress: true`, Chief continues with that story instead of st
 
 Chief constructs a prompt that tells Claude exactly what to do. The prompt includes:
 
-- **The user story** — ID, title, description, and acceptance criteria
-- **Instructions** — Read the PRD, pick the next story, implement it, run checks, commit
-- **Progress context** — Any patterns or learnings from `progress.md`
-- **Completion signal** — How to tell Chief the story is done
+- **The user story**: ID, title, description, and acceptance criteria
+- **Instructions**: Read the PRD, pick the next story, implement it, run checks, commit
+- **Progress context**: Any patterns or learnings from `progress.md`
 
 Here's a simplified version of what Claude receives:
 
@@ -87,7 +115,7 @@ Here's a simplified version of what Claude receives:
 9. Append your progress to `progress.md`
 ```
 
-The prompt is embedded directly in Chief's code—there's no external template file to manage.
+The prompt is embedded directly in Chief's code. There's no external template file to manage.
 
 ### 4. Invoke Claude Code
 
@@ -101,7 +129,7 @@ The flags tell Claude to:
 - Skip permission prompts (Chief runs unattended)
 - Output structured JSON for parsing
 
-Claude now has full control. It can read files, write code, run tests, and commit changes—all autonomously.
+Claude now has full control. It can read files, write code, run tests, and commit changes, all autonomously.
 
 ### 5. Stream & Parse Output
 
@@ -119,43 +147,37 @@ Here's what the output stream looks like:
 │  {"type":"tool_use","name":"Write","input":{...}}           │
 │  {"type":"text","content":"Running tests..."}               │
 │  {"type":"tool_use","name":"Bash","input":{...}}            │
-│  {"type":"text","content":"<chief-complete/>"}              │
+│  {"type":"text","content":"Story complete, committing..."}  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 Each message contains:
-- **type** — What kind of output (text, tool_use, etc.)
-- **content** — The actual output or tool details
+- **type**: What kind of output (text, tool_use, etc.)
+- **content**: The actual output or tool details
 
-Chief watches this stream for the completion signal while displaying everything in the TUI.
+Chief parses this stream to display progress in the TUI. When Claude's session ends, Chief checks if the story was completed (by reading the updated PRD) and continues the loop.
 
-### 6. Watch for the Completion Signal
+### 6. The Completion Signal
 
-Claude signals that a story is complete by outputting a special marker:
+When Claude determines that **all stories are complete**, it outputs a special marker:
 
 ```
 <chief-complete/>
 ```
 
-This is an XML-style tag that Chief can easily detect in the output stream. When Claude outputs this tag, it means:
+This signal tells Chief to break out of the loop early. There's no need to spawn another iteration just to discover there's nothing left to do. It's an optimization, not the primary mechanism for tracking story completion.
 
-- The user story is fully implemented
-- Quality checks passed (typecheck, lint, tests)
-- Changes are committed with a proper message
-- The PRD is updated with `passes: true`
-- Progress is appended to `progress.md`
+Individual story completion is tracked through the PRD itself (`passes: true`), not through this signal.
 
-Chief watches for this signal in every text message from Claude.
+### 7. Continue the Loop
 
-### 7. Update and Continue
-
-When Chief sees `<chief-complete/>`, it:
+After each Claude session ends, Chief:
 
 1. Increments the iteration counter
 2. Checks if max iterations is reached
 3. If not at limit, loops back to step 1 (Read State)
 
-The next iteration starts fresh—Claude reads the updated `prd.json`, sees the completed story, and picks the next one.
+The next iteration starts fresh. Claude reads the updated PRD, sees the completed story, and picks the next one. If all stories are done, Chief stops.
 
 ## Iteration Limits
 
@@ -176,10 +198,12 @@ You can adjust the limit with the `--max-iterations` flag or in your configurati
 
 ## Why "Ralph"?
 
-Ralph was the first PRD we used to test this loop—a simple todo app. When it worked (Claude building features while we watched), the name stuck. Now every Chief loop is a Ralph Loop.
+The name comes from [Ralph Wiggum loops](https://ghuntley.com/ralph/), a pattern coined by Geoffrey Huntley. The idea: instead of fighting context window limits with one long session, you run the AI in a loop. Each iteration starts fresh but reads persisted state from the previous run.
+
+Chief's implementation was inspired by [snarktank/ralph](https://github.com/snarktank/ralph), an early proof-of-concept that demonstrated the pattern in practice.
 
 ## What's Next
 
-- [The .chief Directory](/concepts/chief-directory) — Where all this state lives
-- [PRD Format](/concepts/prd-format) — How to write effective user stories
-- [CLI Reference](/reference/cli) — Running Chief with different options
+- [The .chief Directory](/concepts/chief-directory): Where all this state lives
+- [PRD Format](/concepts/prd-format): How to write effective user stories
+- [CLI Reference](/reference/cli): Running Chief with different options

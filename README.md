@@ -369,7 +369,7 @@ claude --version
 
 ### "Permission denied" errors
 
-Chief runs Claude with `--dangerously-skip-permissions` to enable autonomous operation. Ensure:
+Chief runs Claude with permissions disabled to enable autonomous operation. Ensure:
 - You trust the PRD content
 - Claude has appropriate access to your project
 
@@ -457,6 +457,7 @@ Contributions are welcome! Please:
 
 ## Acknowledgments
 
+- [snarktank/ralph](https://github.com/snarktank/ralph) - The original Ralph implementation that inspired this project
+- [Geoffrey Huntley](https://ghuntley.com/ralph/) - For coining the "Ralph Wiggum loop" pattern
 - [Bubble Tea](https://github.com/charmbracelet/bubbletea) - TUI framework
 - [Lip Gloss](https://github.com/charmbracelet/lipgloss) - Terminal styling
-- [Claude Code](https://claude.ai/code) - AI coding assistant

@@ -37,14 +37,7 @@ export PATH="$HOME/.npm-global/bin:$PATH"
 
 **Solution:**
 
-```bash
-# For autonomous operation, skip permission prompts
-chief --dangerously-skip-permissions
-```
-
-::: warning
-Only use this flag when you trust the PRD and understand that Claude will modify files without asking.
-:::
+Chief automatically runs Claude with permission prompts disabled for autonomous operation. If you're still seeing permission issues, ensure you're running Chief (not Claude directly) and that your Claude Code installation is up to date.
 
 ## No Sound on Completion
 
@@ -105,8 +98,9 @@ chief --no-sound
 
 4. Try restarting Chief:
    ```bash
-   # Ctrl+C to stop
-   chief  # Restart
+   # Press 'x' to stop (or Ctrl+C to quit)
+   chief  # Launch TUI
+   # Press 's' to start the loop
    ```
 
 ## Max Iterations Reached
@@ -142,7 +136,7 @@ chief --no-sound
 
 2. Or specify the PRD explicitly:
    ```bash
-   chief --prd my-feature
+   chief my-feature
    ```
 
 3. Verify structure:

@@ -77,18 +77,7 @@ The JSON file is what Chief actually uses to drive execution. It defines the pro
 |-------|------|----------|-------------|
 | `project` | `string` | Yes | Project name, used in logs and TUI |
 | `description` | `string` | Yes | Brief description of what you're building |
-| `settings` | `object` | No | Optional quality check commands |
 | `userStories` | `array` | Yes | Ordered list of user stories |
-
-### Settings Object
-
-The optional `settings` object tells Chief what commands to suggest for quality checks:
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `testCommand` | `string` | Command to run tests (e.g., `npm test`) |
-| `buildCommand` | `string` | Command to build the project (e.g., `npm run build`) |
-| `lintCommand` | `string` | Command to lint code (e.g., `npm run lint`) |
 
 ### UserStory Object
 
@@ -174,13 +163,6 @@ Here's a complete `prd.json` with annotations explaining each part:
 
   // A brief description — helps Claude understand scope
   "description": "Complete auth system with login, registration, and password reset",
-
-  // Optional commands Chief suggests for quality checks
-  "settings": {
-    "testCommand": "npm test",
-    "buildCommand": "npm run build",
-    "lintCommand": "npm run lint"
-  },
 
   "userStories": [
     {
