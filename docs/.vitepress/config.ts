@@ -47,6 +47,10 @@ export default defineConfig({
       { icon: 'github', link: 'https://github.com/minicodemonkey/chief' }
     ],
 
+    search: {
+      provider: 'local'
+    },
+
     sidebar: [
       {
         text: 'Getting Started',
