@@ -131,7 +131,7 @@ brews:
     #   name: chief
     #   token: "{{ .Env.GITHUB_TOKEN }}"
     folder: Formula
-    homepage: "https://github.com/minicodemonkey/chief"
+    homepage: "https://minicodemonkey.github.io/chief/"
     description: "Autonomous agent loop for working through PRDs with Claude Code"
     license: "MIT"
     # Custom install script
