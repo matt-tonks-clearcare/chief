@@ -334,3 +334,47 @@
   - The `paths` filter on push trigger limits builds to changes in `docs/` or the workflow file itself
   - npm ci with `cache-dependency-path` pointing to `docs/package-lock.json` enables dependency caching
 ---
+
+## 2026-01-28 - US-021
+- **What was implemented**: SEO and social cards with meta descriptions, Open Graph tags, Twitter cards, favicon, and social image
+- **Files changed**:
+  - `docs/.vitepress/config.ts` - added `head` array with favicon, OG tags, and Twitter card tags
+  - `docs/public/favicon.ico` - new favicon with "C" on Tokyo Night background
+  - `docs/public/images/og-default.png` - new 1200x630 OG social image with Tokyo Night styling
+  - All documentation pages - added frontmatter `description` field for per-page meta descriptions:
+    - `docs/index.md`, `docs/guide/index.md`, `docs/guide/quick-start.md`, `docs/guide/installation.md`
+    - `docs/concepts/how-it-works.md`, `docs/concepts/ralph-loop.md`, `docs/concepts/prd-format.md`, `docs/concepts/chief-directory.md`
+    - `docs/reference/cli.md`, `docs/reference/configuration.md`, `docs/reference/prd-schema.md`
+    - `docs/troubleshooting/common-issues.md`, `docs/troubleshooting/faq.md`
+  - `.chief/prds/website-docs/prd.json` - marked US-021 as passes: true
+- **Learnings for future iterations:**
+  - VitePress auto-generates `<meta name="description">` from the page's frontmatter `description` or site-level `description` config
+  - Don't put explicit `<meta name="description">` in the `head` array — it will override per-page frontmatter descriptions
+  - ImageMagick can create simple OG images: `magick -size 1200x630 xc:'#color' -font "Helvetica-Bold" -pointsize 72 -fill '#color' -gravity center -annotate +0+0 'Text' output.png`
+  - Favicon can be created with ImageMagick: `magick -size 128x128 xc:'#bg' ... -resize 32x32 favicon.ico`
+  - OG image URL must be absolute (e.g., `https://minicodemonkey.github.io/chief/images/og-default.png`)
+  - VitePress frontmatter `description` appears as `<meta name="description">` in the rendered HTML
+---
+
+## 2026-01-28 - US-022
+- **What was implemented**: Mobile responsiveness verification and improvements across the site
+- **Files changed**:
+  - `docs/.vitepress/theme/tailwind.css` - added comprehensive mobile CSS including:
+    - Code blocks with horizontal scroll (`overflow-x: auto`, `-webkit-overflow-scrolling: touch`)
+    - Tables with horizontal scroll wrapper
+    - Touch targets minimum 44px height for interactive elements (sidebar links, nav items, search buttons)
+    - Font size adjustments for code and tables at 768px and 420px breakpoints
+    - Tighter spacing at 375px (420px) breakpoint
+  - `docs/.vitepress/theme/components/Hero.vue` - added 375px (420px) breakpoint with:
+    - Smaller hero headline and subheadline font sizes
+    - Smaller terminal font size and padding
+    - Touch target minimum height (44px) for buttons and copy button
+  - `.chief/prds/website-docs/prd.json` - marked US-022 as passes: true
+- **Learnings for future iterations:**
+  - VitePress navigation automatically collapses to hamburger menu on mobile — no custom implementation needed
+  - Touch targets should be minimum 44px for accessibility (Apple/Google HIG recommendation)
+  - Use `-webkit-overflow-scrolling: touch` for smooth momentum scrolling on iOS
+  - Tables with `display: block; overflow-x: auto` allow horizontal scrolling while preserving table structure
+  - Landing page components (Hero, HowItWorks, Features, Footer) already had 640px breakpoints from initial implementation — just needed to add 375px/420px for very small screens
+  - VitePress uses 768px as the mobile breakpoint for sidebar collapse
+---

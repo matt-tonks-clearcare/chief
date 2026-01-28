@@ -466,12 +466,53 @@ async function copyInstallCommand() {
   .btn-secondary {
     width: 100%;
     justify-content: center;
+    /* Touch target: minimum 44px height */
+    min-height: 44px;
   }
 
   .terminal-body {
     font-size: 0.75rem;
     padding: 1rem;
     min-height: 240px;
+  }
+
+  /* Copy button touch target */
+  .copy-button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+/* Very small screens (375px) */
+@media (max-width: 420px) {
+  .hero-section {
+    padding: 1.5rem 0.75rem;
+  }
+
+  .hero-headline {
+    font-size: 1.75rem;
+  }
+
+  .hero-subheadline {
+    font-size: 1rem;
+  }
+
+  .install-code {
+    font-size: 0.7rem;
+  }
+
+  .terminal-body {
+    font-size: 0.65rem;
+    padding: 0.75rem;
+    min-height: 200px;
+  }
+
+  .terminal-window {
+    border-radius: 8px;
+  }
+
+  .terminal-header {
+    padding: 0.5rem 0.75rem;
   }
 }
 </style>
