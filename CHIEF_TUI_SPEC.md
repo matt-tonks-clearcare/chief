@@ -1189,7 +1189,7 @@ brew install chief
 go install github.com/minicodemonkey/chief@latest
 
 # Download binary
-curl -fsSL https://chief.codemonkey.io/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/MiniCodeMonkey/chief/refs/heads/main/install.sh | sh
 ```
 
 ## Implementation Phases

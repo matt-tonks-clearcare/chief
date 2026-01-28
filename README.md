@@ -2,7 +2,7 @@
 
 Build big projects with Claude. Chief breaks your work into tasks and runs Claude Code in a loop until they're done.
 
-**[Documentation](https://chief.codemonkey.io)** · **[Quick Start](https://chief.codemonkey.io/guide/quick-start)**
+**[Documentation](https://minicodemonkey.github.io/chief/)** · **[Quick Start](https://minicodemonkey.github.io/chief/guide/quick-start)**
 
 ## Install
 
@@ -13,7 +13,7 @@ brew install minicodemonkey/chief/chief
 Or via install script:
 
 ```bash
-curl -fsSL https://chief.codemonkey.io/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/MiniCodeMonkey/chief/refs/heads/main/install.sh | sh
 ```
 
 ## Usage
@@ -34,7 +34,7 @@ Chief runs Claude in a [Ralph Wiggum loop](https://ghuntley.com/ralph/): each it
 2. **Chief runs Claude** in a loop, one task at a time
 3. **One commit per task** — clean git history, easy to review
 
-See the [documentation](https://chief.codemonkey.io/concepts/how-it-works) for details.
+See the [documentation](https://minicodemonkey.github.io/chief/concepts/how-it-works) for details.
 
 ## Requirements
 
