@@ -171,3 +171,46 @@ func TestLogViewer_IsAutoScrolling(t *testing.T) {
 		t.Error("Expected IsAutoScrolling to remain true when at top")
 	}
 }
+
+func TestStripLineNumbers(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "arrow format",
+			input:    "   1→<?php\n   2→\n   3→use App\\Models;",
+			expected: "<?php\n\nuse App\\Models;",
+		},
+		{
+			name:     "tab format",
+			input:    "   1\t<?php\n   2\t\n   3\tuse App\\Models;",
+			expected: "<?php\n\nuse App\\Models;",
+		},
+		{
+			name:     "double digit line numbers",
+			input:    "  10→function test() {\n  11→    return true;\n  12→}",
+			expected: "function test() {\n    return true;\n}",
+		},
+		{
+			name:     "no line numbers",
+			input:    "<?php\nuse App\\Models;",
+			expected: "<?php\nuse App\\Models;",
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := stripLineNumbers(tt.input)
+			if result != tt.expected {
+				t.Errorf("stripLineNumbers() =\n%q\nwant:\n%q", result, tt.expected)
+			}
+		})
+	}
+}

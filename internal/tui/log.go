@@ -1,9 +1,15 @@
 package tui
 
 import (
+	"bytes"
 	"fmt"
+	"path/filepath"
 	"strings"
 
+	"github.com/alecthomas/chroma/v2"
+	"github.com/alecthomas/chroma/v2/formatters"
+	"github.com/alecthomas/chroma/v2/lexers"
+	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/minicodemonkey/chief/internal/loop"
 )
@@ -15,15 +21,17 @@ type LogEntry struct {
 	Tool      string
 	ToolInput map[string]interface{}
 	StoryID   string
+	FilePath  string // For Read tool results, stores the file path for syntax highlighting
 }
 
 // LogViewer manages the log viewport state.
 type LogViewer struct {
-	entries    []LogEntry
-	scrollPos  int  // Current scroll position (top line index)
-	height     int  // Viewport height (lines)
-	width      int  // Viewport width
-	autoScroll bool // Auto-scroll to bottom when new content arrives
+	entries          []LogEntry
+	scrollPos        int    // Current scroll position (top line index)
+	height           int    // Viewport height (lines)
+	width            int    // Viewport width
+	autoScroll       bool   // Auto-scroll to bottom when new content arrives
+	lastReadFilePath string // Track the last Read tool's file path for syntax highlighting
 }
 
 // NewLogViewer creates a new log viewer.
@@ -43,6 +51,19 @@ func (l *LogViewer) AddEvent(event loop.Event) {
 		Tool:      event.Tool,
 		ToolInput: event.ToolInput,
 		StoryID:   event.StoryID,
+	}
+
+	// Track Read tool file paths for syntax highlighting
+	if event.Type == loop.EventToolStart && event.Tool == "Read" {
+		if filePath, ok := event.ToolInput["file_path"].(string); ok {
+			l.lastReadFilePath = filePath
+		}
+	}
+
+	// For tool results, attach the file path from the preceding Read tool
+	if event.Type == loop.EventToolResult && l.lastReadFilePath != "" {
+		entry.FilePath = l.lastReadFilePath
+		l.lastReadFilePath = "" // Clear after consuming
 	}
 
 	// Filter out events we don't want to display
@@ -378,20 +399,139 @@ func (l *LogViewer) renderToolResult(entry LogEntry) []string {
 	resultStyle := lipgloss.NewStyle().Foreground(MutedColor)
 	checkStyle := lipgloss.NewStyle().Foreground(SuccessColor)
 
-	// Show a compact result indicator, truncate to available width
 	text := entry.Text
-	maxLen := l.width - 8 // Account for "  ↳ " prefix and padding
+	if text == "" {
+		return []string{resultStyle.Render(checkStyle.Render("  ↳ ") + "(no output)")}
+	}
+
+	// If this is a Read result with a file path, apply syntax highlighting
+	if entry.FilePath != "" {
+		highlighted := l.highlightCode(text, entry.FilePath)
+		if highlighted != "" {
+			lines := strings.Split(highlighted, "\n")
+			var result []string
+			result = append(result, checkStyle.Render("  ↳ ")) // Result indicator
+			// Limit to 20 lines to keep the log view manageable
+			maxLines := 20
+			for i, line := range lines {
+				if i >= maxLines {
+					result = append(result, resultStyle.Render(fmt.Sprintf("    ... (%d more lines)", len(lines)-maxLines)))
+					break
+				}
+				result = append(result, "    "+line)
+			}
+			return result
+		}
+	}
+
+	// Fallback: show a compact single-line result
+	maxLen := l.width - 8
 	if maxLen < 20 {
 		maxLen = 20
 	}
 	if len(text) > maxLen {
 		text = text[:maxLen-3] + "..."
 	}
-	if text == "" {
-		text = "(no output)"
+	return []string{resultStyle.Render(checkStyle.Render("  ↳ ") + text)}
+}
+
+// highlightCode applies syntax highlighting to code based on file extension.
+func (l *LogViewer) highlightCode(code, filePath string) string {
+	// Strip line number prefixes from Read tool output (format: "   1→" or "   1\t")
+	code = stripLineNumbers(code)
+
+	// Get lexer based on file extension
+	ext := filepath.Ext(filePath)
+	lexer := lexers.Match(filePath)
+	if lexer == nil {
+		lexer = lexers.Get(ext)
+	}
+	if lexer == nil {
+		lexer = lexers.Fallback
+	}
+	lexer = chroma.Coalesce(lexer)
+
+	// Use Tokyo Night theme for syntax highlighting
+	style := styles.Get("tokyonight-night")
+	if style == nil {
+		style = styles.Fallback
 	}
 
-	return []string{resultStyle.Render(checkStyle.Render("  ↳ ") + text)}
+	// Use terminal256 formatter for ANSI color output
+	formatter := formatters.Get("terminal256")
+	if formatter == nil {
+		formatter = formatters.Fallback
+	}
+
+	// Tokenize and format
+	iterator, err := lexer.Tokenise(nil, code)
+	if err != nil {
+		return ""
+	}
+
+	var buf bytes.Buffer
+	if err := formatter.Format(&buf, style, iterator); err != nil {
+		return ""
+	}
+
+	return buf.String()
+}
+
+// stripLineNumbers removes line number prefixes from Read tool output.
+// The format is: optional spaces + line number + → or tab + content
+func stripLineNumbers(code string) string {
+	lines := strings.Split(code, "\n")
+	var result []string
+
+	for _, line := range lines {
+		// Look for patterns like "   1→", "  10→", "   1\t", etc.
+		stripped := line
+
+		// Find the arrow or tab after the line number
+		arrowIdx := strings.Index(line, "→")
+		tabIdx := strings.Index(line, "\t")
+
+		idx := -1
+		if arrowIdx != -1 && tabIdx != -1 {
+			if arrowIdx < tabIdx {
+				idx = arrowIdx
+			} else {
+				idx = tabIdx
+			}
+		} else if arrowIdx != -1 {
+			idx = arrowIdx
+		} else if tabIdx != -1 {
+			idx = tabIdx
+		}
+
+		if idx > 0 && idx < 10 { // Line number prefix is typically short
+			// Check if everything before is spaces and digits
+			prefix := line[:idx]
+			isLineNum := true
+			hasDigit := false
+			for _, ch := range prefix {
+				if ch >= '0' && ch <= '9' {
+					hasDigit = true
+				} else if ch != ' ' {
+					isLineNum = false
+					break
+				}
+			}
+			if isLineNum && hasDigit {
+				// Skip the arrow/tab character (→ is multi-byte)
+				if line[idx] == '\t' {
+					stripped = line[idx+1:]
+				} else {
+					// → is 3 bytes in UTF-8
+					stripped = line[idx+3:]
+				}
+			}
+		}
+
+		result = append(result, stripped)
+	}
+
+	return strings.Join(result, "\n")
 }
 
 // renderStoryStarted renders a story started marker.
