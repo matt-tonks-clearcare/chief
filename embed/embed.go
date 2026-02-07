@@ -39,6 +39,6 @@ func GetEditPrompt(prdDir string) string {
 }
 
 // GetConvertPrompt returns the PRD converter prompt for prd.md to prd.json conversion.
-func GetConvertPrompt() string {
-	return convertPromptTemplate
+func GetConvertPrompt(prdDir string) string {
+	return strings.ReplaceAll(convertPromptTemplate, "{{PRD_DIR}}", prdDir)
 }

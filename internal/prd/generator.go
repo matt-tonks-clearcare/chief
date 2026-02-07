@@ -34,6 +34,7 @@ const (
 )
 
 // Convert converts prd.md to prd.json using Claude one-shot mode.
+// Claude is responsible for writing the prd.json file directly.
 // This function is called:
 // - After chief new (new PRD creation)
 // - After chief edit (PRD modification)
@@ -53,6 +54,12 @@ func Convert(opts ConvertOptions) error {
 		return fmt.Errorf("prd.md not found in %s", opts.PRDDir)
 	}
 
+	// Resolve absolute path so the prompt can specify exact file locations
+	absPRDDir, err := filepath.Abs(opts.PRDDir)
+	if err != nil {
+		return fmt.Errorf("failed to resolve absolute path: %w", err)
+	}
+
 	// Check for existing progress before conversion
 	var existingPRD *PRD
 	hasProgress := false
@@ -61,67 +68,30 @@ func Convert(opts ConvertOptions) error {
 		hasProgress = HasProgress(existing)
 	}
 
-	// Get the converter prompt
-	prompt := embed.GetConvertPrompt()
-
-	// Run Claude one-shot conversion (non-interactive)
-	cmd := exec.Command("claude",
-		"--dangerously-skip-permissions",
-		"-p", prompt,
-		"--output-format", "text",
-	)
-	cmd.Dir = opts.PRDDir
-
-	// Capture stdout and stderr
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	// Start the command
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start Claude: %w", err)
+	// Run Claude to convert prd.md and write prd.json directly
+	if err := runClaudeConversion(absPRDDir); err != nil {
+		return err
 	}
 
-	// Run spinner while waiting
-	done := make(chan error, 1)
-	go func() {
-		done <- cmd.Wait()
-	}()
+	// Validate that Claude wrote a valid prd.json
+	newPRD, err := loadAndValidateConvertedPRD(prdJsonPath)
+	if err != nil {
+		// Retry once: ask Claude to fix the invalid JSON
+		fmt.Println("Conversion produced invalid JSON, retrying...")
+		if retryErr := runClaudeJSONFix(absPRDDir, err); retryErr != nil {
+			return fmt.Errorf("conversion retry failed: %w", retryErr)
+		}
 
-	frame := 0
-	ticker := time.NewTicker(80 * time.Millisecond)
-	defer ticker.Stop()
-
-waitLoop:
-	for {
-		select {
-		case err := <-done:
-			// Clear the spinner line
-			fmt.Print("\r\033[K")
-			if err != nil {
-				return fmt.Errorf("Claude conversion failed: %s", stderr.String())
-			}
-			break waitLoop
-		case <-ticker.C:
-			fmt.Printf("\r%s Converting prd.md to prd.json...", spinnerFrames[frame%len(spinnerFrames)])
-			frame++
+		newPRD, err = loadAndValidateConvertedPRD(prdJsonPath)
+		if err != nil {
+			return fmt.Errorf("conversion produced invalid JSON after retry: %w", err)
 		}
 	}
 
-	output := stdout.Bytes()
-
-	// Clean up output (remove any markdown code blocks if present)
-	jsonContent := cleanJSONOutput(string(output))
-
-	// Validate that it's valid JSON
-	if err := validateJSON(jsonContent); err != nil {
-		return fmt.Errorf("conversion produced invalid JSON: %w", err)
-	}
-
-	// Parse the new PRD
-	var newPRD PRD
-	if err := json.Unmarshal([]byte(jsonContent), &newPRD); err != nil {
-		return fmt.Errorf("failed to parse converted PRD: %w", err)
+	// Re-save through Go's JSON encoder to guarantee proper escaping and formatting
+	normalizedContent, err := json.MarshalIndent(newPRD, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal PRD: %w", err)
 	}
 
 	// Handle progress protection if existing prd.json has progress
@@ -135,7 +105,7 @@ waitLoop:
 		} else {
 			// Prompt user for choice
 			var promptErr error
-			choice, promptErr = promptProgressConflict(existingPRD, &newPRD)
+			choice, promptErr = promptProgressConflict(existingPRD, newPRD)
 			if promptErr != nil {
 				return fmt.Errorf("failed to prompt for choice: %w", promptErr)
 			}
@@ -146,29 +116,110 @@ waitLoop:
 			return fmt.Errorf("conversion cancelled by user")
 		case ChoiceMerge:
 			// Merge progress from existing PRD into new PRD
-			MergeProgress(existingPRD, &newPRD)
+			MergeProgress(existingPRD, newPRD)
 			// Re-marshal with merged progress
-			mergedContent, err := json.MarshalIndent(&newPRD, "", "  ")
+			mergedContent, err := json.MarshalIndent(newPRD, "", "  ")
 			if err != nil {
 				return fmt.Errorf("failed to marshal merged PRD: %w", err)
 			}
-			jsonContent = string(mergedContent)
+			normalizedContent = mergedContent
 		case ChoiceOverwrite:
 			// Use the new PRD as-is (no progress)
 		}
 	}
 
-	// Write prd.json
-	if err := os.WriteFile(prdJsonPath, []byte(jsonContent), 0644); err != nil {
+	// Write the final normalized prd.json
+	if err := os.WriteFile(prdJsonPath, append(normalizedContent, '\n'), 0644); err != nil {
 		return fmt.Errorf("failed to write prd.json: %w", err)
 	}
 
-	// Verify the PRD can be loaded properly
-	if _, err := LoadPRD(prdJsonPath); err != nil {
-		return fmt.Errorf("conversion produced invalid PRD structure: %w", err)
+	return nil
+}
+
+// runClaudeConversion runs Claude one-shot to convert prd.md and write prd.json.
+func runClaudeConversion(absPRDDir string) error {
+	prompt := embed.GetConvertPrompt(absPRDDir)
+
+	cmd := exec.Command("claude",
+		"--dangerously-skip-permissions",
+		"-p", prompt,
+	)
+	cmd.Dir = absPRDDir
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start Claude: %w", err)
 	}
 
-	return nil
+	return waitWithSpinner(cmd, "Converting prd.md to prd.json...", &stderr)
+}
+
+// runClaudeJSONFix asks Claude to fix an invalid prd.json file.
+func runClaudeJSONFix(absPRDDir string, validationErr error) error {
+	fixPrompt := fmt.Sprintf(
+		"The file at %s/prd.json contains invalid JSON. The error is: %s\n\n"+
+			"Read the file, fix the JSON (pay special attention to escaping double quotes inside string values with backslashes), "+
+			"and write the corrected JSON back to %s/prd.json.",
+		absPRDDir, validationErr.Error(), absPRDDir,
+	)
+
+	cmd := exec.Command("claude",
+		"--dangerously-skip-permissions",
+		"-p", fixPrompt,
+	)
+	cmd.Dir = absPRDDir
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start Claude: %w", err)
+	}
+
+	return waitWithSpinner(cmd, "Fixing prd.json...", &stderr)
+}
+
+// loadAndValidateConvertedPRD loads prd.json and validates it can be parsed as a PRD.
+func loadAndValidateConvertedPRD(prdJsonPath string) (*PRD, error) {
+	prd, err := LoadPRD(prdJsonPath)
+	if err != nil {
+		return nil, err
+	}
+	if prd.Project == "" {
+		return nil, fmt.Errorf("prd.json missing required 'project' field")
+	}
+	if len(prd.UserStories) == 0 {
+		return nil, fmt.Errorf("prd.json has no user stories")
+	}
+	return prd, nil
+}
+
+// waitWithSpinner runs a spinner while waiting for a command to finish.
+func waitWithSpinner(cmd *exec.Cmd, message string, stderr *bytes.Buffer) error {
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	frame := 0
+	ticker := time.NewTicker(80 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case err := <-done:
+			fmt.Print("\r\033[K")
+			if err != nil {
+				return fmt.Errorf("Claude failed: %s", stderr.String())
+			}
+			return nil
+		case <-ticker.C:
+			fmt.Printf("\r%s %s", spinnerFrames[frame%len(spinnerFrames)], message)
+			frame++
+		}
+	}
 }
 
 // NeedsConversion checks if prd.md is newer than prd.json, indicating conversion is needed.

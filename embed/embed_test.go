@@ -40,11 +40,20 @@ func TestPromptTemplateNotEmpty(t *testing.T) {
 }
 
 func TestGetConvertPrompt(t *testing.T) {
-	prompt := GetConvertPrompt()
+	prdDir := "/path/to/.chief/prds/my-feature"
+	prompt := GetConvertPrompt(prdDir)
 
 	// Verify the prompt is not empty
 	if prompt == "" {
 		t.Error("Expected GetConvertPrompt() to return non-empty prompt")
+	}
+
+	// Verify PRD directory is substituted
+	if !strings.Contains(prompt, prdDir) {
+		t.Errorf("Expected prompt to contain PRD directory %q", prdDir)
+	}
+	if strings.Contains(prompt, "{{PRD_DIR}}") {
+		t.Error("Expected {{PRD_DIR}} to be substituted")
 	}
 
 	// Verify key instructions are present

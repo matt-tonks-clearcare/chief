@@ -3,6 +3,7 @@ package prd
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -426,8 +427,145 @@ func TestMergeProgress(t *testing.T) {
 	})
 }
 
-// Note: Full integration tests for Convert() would require Claude to be available.
-// These tests focus on the pre-conversion validation logic.
+func TestLoadAndValidateConvertedPRD(t *testing.T) {
+	t.Run("valid prd.json", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		prdJsonPath := filepath.Join(tmpDir, "prd.json")
+		content := `{
+  "project": "Test Project",
+  "description": "A test project",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "First Story",
+      "description": "Do something",
+      "acceptanceCriteria": ["It works"],
+      "priority": 1,
+      "passes": false
+    }
+  ]
+}`
+		if err := os.WriteFile(prdJsonPath, []byte(content), 0644); err != nil {
+			t.Fatalf("Failed to write test prd.json: %v", err)
+		}
+
+		prd, err := loadAndValidateConvertedPRD(prdJsonPath)
+		if err != nil {
+			t.Errorf("loadAndValidateConvertedPRD() unexpected error: %v", err)
+		}
+		if prd == nil {
+			t.Fatal("Expected non-nil PRD")
+		}
+		if prd.Project != "Test Project" {
+			t.Errorf("Expected project 'Test Project', got %q", prd.Project)
+		}
+	})
+
+	t.Run("file does not exist", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		prdJsonPath := filepath.Join(tmpDir, "prd.json")
+
+		_, err := loadAndValidateConvertedPRD(prdJsonPath)
+		if err == nil {
+			t.Error("Expected error when prd.json does not exist")
+		}
+	})
+
+	t.Run("invalid JSON", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		prdJsonPath := filepath.Join(tmpDir, "prd.json")
+		if err := os.WriteFile(prdJsonPath, []byte(`{invalid json`), 0644); err != nil {
+			t.Fatalf("Failed to write test file: %v", err)
+		}
+
+		_, err := loadAndValidateConvertedPRD(prdJsonPath)
+		if err == nil {
+			t.Error("Expected error for invalid JSON")
+		}
+	})
+
+	t.Run("missing project field", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		prdJsonPath := filepath.Join(tmpDir, "prd.json")
+		content := `{
+  "project": "",
+  "description": "A test",
+  "userStories": [{"id": "US-001", "title": "Story", "description": "Desc", "acceptanceCriteria": [], "priority": 1, "passes": false}]
+}`
+		if err := os.WriteFile(prdJsonPath, []byte(content), 0644); err != nil {
+			t.Fatalf("Failed to write test file: %v", err)
+		}
+
+		_, err := loadAndValidateConvertedPRD(prdJsonPath)
+		if err == nil {
+			t.Error("Expected error for missing project field")
+		}
+		if err != nil && !strings.Contains(err.Error(), "project") {
+			t.Errorf("Expected error about 'project' field, got: %v", err)
+		}
+	})
+
+	t.Run("no user stories", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		prdJsonPath := filepath.Join(tmpDir, "prd.json")
+		content := `{
+  "project": "Test",
+  "description": "A test",
+  "userStories": []
+}`
+		if err := os.WriteFile(prdJsonPath, []byte(content), 0644); err != nil {
+			t.Fatalf("Failed to write test file: %v", err)
+		}
+
+		_, err := loadAndValidateConvertedPRD(prdJsonPath)
+		if err == nil {
+			t.Error("Expected error for empty user stories")
+		}
+		if err != nil && !strings.Contains(err.Error(), "user stories") {
+			t.Errorf("Expected error about 'user stories', got: %v", err)
+		}
+	})
+
+	t.Run("JSON with escaped quotes parses correctly", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		prdJsonPath := filepath.Join(tmpDir, "prd.json")
+		content := `{
+  "project": "Test Project",
+  "description": "A project with \"quoted\" text",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Story with \"quotes\"",
+      "description": "Click the \"Submit\" button",
+      "acceptanceCriteria": ["User sees \"Success\" message", "Button says \"OK\""],
+      "priority": 1,
+      "passes": false
+    }
+  ]
+}`
+		if err := os.WriteFile(prdJsonPath, []byte(content), 0644); err != nil {
+			t.Fatalf("Failed to write test file: %v", err)
+		}
+
+		prd, err := loadAndValidateConvertedPRD(prdJsonPath)
+		if err != nil {
+			t.Errorf("loadAndValidateConvertedPRD() unexpected error: %v", err)
+		}
+		if prd == nil {
+			t.Fatal("Expected non-nil PRD")
+		}
+		// Verify the escaped quotes are properly parsed
+		if prd.UserStories[0].Title != `Story with "quotes"` {
+			t.Errorf("Expected title with unescaped quotes, got %q", prd.UserStories[0].Title)
+		}
+		if prd.UserStories[0].AcceptanceCriteria[0] != `User sees "Success" message` {
+			t.Errorf("Expected acceptance criteria with unescaped quotes, got %q", prd.UserStories[0].AcceptanceCriteria[0])
+		}
+	})
+}
+
+// Note: Full integration tests for Convert(), runClaudeConversion(), runClaudeJSONFix(),
+// and waitWithSpinner() require Claude to be available and are not included here.
 
 func TestSamplePRDMarkdown(t *testing.T) {
 	// Test that a sample prd.md structure is recognized
