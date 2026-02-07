@@ -13,15 +13,17 @@ import (
 
 // PRDEntry represents a PRD in the picker list.
 type PRDEntry struct {
-	Name       string         // Directory name (e.g., "main", "feature-x")
-	Path       string         // Full path to prd.json
-	PRD        *prd.PRD       // Loaded PRD data
-	LoadError  error          // Error if PRD couldn't be loaded
-	Completed  int            // Number of completed stories
-	Total      int            // Total number of stories
-	InProgress bool           // Whether any story is in progress
-	LoopState  loop.LoopState // Current loop state from manager
-	Iteration  int            // Current iteration if running
+	Name        string         // Directory name (e.g., "main", "feature-x")
+	Path        string         // Full path to prd.json
+	PRD         *prd.PRD       // Loaded PRD data
+	LoadError   error          // Error if PRD couldn't be loaded
+	Completed   int            // Number of completed stories
+	Total       int            // Total number of stories
+	InProgress  bool           // Whether any story is in progress
+	LoopState   loop.LoopState // Current loop state from manager
+	Iteration   int            // Current iteration if running
+	Branch      string         // Git branch for this PRD (empty = no branch)
+	WorktreeDir string         // Worktree directory (empty = current directory)
 }
 
 // PRDPicker manages the PRD picker modal state.
@@ -128,11 +130,15 @@ func (p *PRDPicker) loadPRDEntry(name, prdPath string) PRDEntry {
 		}
 	}
 
-	// Get loop state from manager if available
+	// Get loop state and worktree info from manager if available
 	if p.manager != nil {
 		if state, iteration, _ := p.manager.GetState(name); state != 0 || iteration != 0 {
 			prdEntry.LoopState = state
 			prdEntry.Iteration = iteration
+		}
+		if instance := p.manager.GetInstance(name); instance != nil {
+			prdEntry.Branch = instance.Branch
+			prdEntry.WorktreeDir = instance.WorktreeDir
 		}
 	}
 
@@ -360,6 +366,28 @@ func (p *PRDPicker) renderEntry(entry PRDEntry, selected bool, width int) string
 		// Loop state indicator
 		line.WriteString(" ")
 		line.WriteString(p.renderLoopStateIndicator(entry))
+
+		// Branch and worktree path (only if branch is set)
+		if entry.Branch != "" {
+			branchPathStyle := lipgloss.NewStyle().Foreground(MutedColor)
+			// Calculate remaining space for branch and path info
+			// Base content uses: 2 (indicator) + 12 (name) + 1 (space) + 8 (progress) + 1 (space) + ~3 (count) + 1 (space) + ~2 (state) = ~30
+			remaining := width - 32
+			if remaining > 10 {
+				branchStr := entry.Branch
+				pathStr := p.worktreeDisplayPath(entry)
+				// Truncate to fit within remaining space: "  branch  path"
+				infoStr := p.formatBranchPath(branchStr, pathStr, remaining)
+				line.WriteString(branchPathStyle.Render(infoStr))
+			}
+		} else if entry.Branch == "" && p.hasAnyBranch() {
+			// If other entries have branches, show "(current directory)" for alignment
+			branchPathStyle := lipgloss.NewStyle().Foreground(MutedColor)
+			remaining := width - 32
+			if remaining > 20 {
+				line.WriteString(branchPathStyle.Render("  (current directory)"))
+			}
+		}
 	}
 
 	result := line.String()
@@ -370,6 +398,65 @@ func (p *PRDPicker) renderEntry(entry PRDEntry, selected bool, width int) string
 	}
 
 	return result
+}
+
+// worktreeDisplayPath returns a display-friendly worktree path.
+func (p *PRDPicker) worktreeDisplayPath(entry PRDEntry) string {
+	if entry.WorktreeDir == "" {
+		return "(current directory)"
+	}
+	// Show relative path from base dir
+	rel, err := filepath.Rel(p.basePath, entry.WorktreeDir)
+	if err != nil {
+		return entry.WorktreeDir
+	}
+	return rel + "/"
+}
+
+// formatBranchPath formats branch and path info to fit within maxWidth.
+// maxWidth is in display characters (runes).
+func (p *PRDPicker) formatBranchPath(branch, path string, maxWidth int) string {
+	// Format: "  <branch>  <path>"
+	prefix := "  "
+	separator := "  "
+	prefixLen := 2
+	sepLen := 2
+
+	branchRunes := []rune(branch)
+	pathRunes := []rune(path)
+
+	fullLen := prefixLen + len(branchRunes) + sepLen + len(pathRunes)
+	if fullLen <= maxWidth {
+		return prefix + branch + separator + path
+	}
+
+	// Try truncating path first
+	availForPath := maxWidth - prefixLen - len(branchRunes) - sepLen
+	if availForPath > 5 {
+		if len(pathRunes) > availForPath {
+			// "…" takes 1 display character
+			keep := availForPath - 1
+			pathRunes = append([]rune("…"), pathRunes[len(pathRunes)-keep:]...)
+		}
+		return prefix + branch + separator + string(pathRunes)
+	}
+
+	// Not enough room for path, just show branch (truncated if needed)
+	availForBranch := maxWidth - prefixLen
+	if availForBranch > 3 && len(branchRunes) > availForBranch {
+		branchRunes = append(branchRunes[:availForBranch-1], '…')
+	}
+	return prefix + string(branchRunes)
+}
+
+// hasAnyBranch returns true if any entry has a branch set.
+func (p *PRDPicker) hasAnyBranch() bool {
+	for _, entry := range p.entries {
+		if entry.Branch != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // renderLoopStateIndicator renders a visual indicator for the loop state.
