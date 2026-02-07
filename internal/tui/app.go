@@ -77,6 +77,14 @@ type mergeResultMsg struct {
 	err       error
 }
 
+// cleanResultMsg is sent when a clean operation completes.
+type cleanResultMsg struct {
+	prdName      string
+	success      bool
+	message      string
+	clearBranch  bool
+}
+
 // worktreeStepResultMsg is sent when a worktree setup step completes.
 type worktreeStepResultMsg struct {
 	step WorktreeSpinnerStep
@@ -347,6 +355,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case mergeResultMsg:
 		return a.handleMergeResult(msg)
+
+	case cleanResultMsg:
+		return a.handleCleanResult(msg)
 
 	case worktreeStepResultMsg:
 		return a.handleWorktreeStepResult(msg)
@@ -1046,6 +1057,94 @@ func (a App) handleMergeResult(msg mergeResultMsg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
+// handleCleanConfirmationKeys handles keyboard input for the clean confirmation dialog.
+func (a App) handleCleanConfirmationKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		a.picker.CancelCleanConfirmation()
+		return a, nil
+	case "up", "k":
+		a.picker.CleanConfirmMoveUp()
+		return a, nil
+	case "down", "j":
+		a.picker.CleanConfirmMoveDown()
+		return a, nil
+	case "enter":
+		cc := a.picker.GetCleanConfirmation()
+		if cc == nil {
+			return a, nil
+		}
+
+		option := a.picker.GetCleanOption()
+		if option == CleanOptionCancel {
+			a.picker.CancelCleanConfirmation()
+			return a, nil
+		}
+
+		prdName := cc.EntryName
+		branch := cc.Branch
+		clearBranch := option == CleanOptionRemoveAll
+		baseDir := a.baseDir
+		worktreePath := git.WorktreePathForPRD(baseDir, prdName)
+
+		return a, func() tea.Msg {
+			// Remove the worktree
+			if err := git.RemoveWorktree(baseDir, worktreePath); err != nil {
+				return cleanResultMsg{
+					prdName: prdName,
+					success: false,
+					message: fmt.Sprintf("Failed to remove worktree: %s", err.Error()),
+				}
+			}
+
+			// Delete branch if requested
+			if clearBranch && branch != "" {
+				if err := git.DeleteBranch(baseDir, branch); err != nil {
+					return cleanResultMsg{
+						prdName:     prdName,
+						success:     true,
+						message:     fmt.Sprintf("Removed worktree but failed to delete branch: %s", err.Error()),
+						clearBranch: false,
+					}
+				}
+			}
+
+			msg := fmt.Sprintf("Removed worktree for %s", prdName)
+			if clearBranch && branch != "" {
+				msg = fmt.Sprintf("Removed worktree and deleted branch %s", branch)
+			}
+			return cleanResultMsg{
+				prdName:     prdName,
+				success:     true,
+				message:     msg,
+				clearBranch: clearBranch,
+			}
+		}
+	}
+
+	return a, nil
+}
+
+// handleCleanResult handles the result of an async clean operation.
+func (a App) handleCleanResult(msg cleanResultMsg) (tea.Model, tea.Cmd) {
+	a.picker.CancelCleanConfirmation()
+	a.picker.SetCleanResult(&CleanResult{
+		Success: msg.success,
+		Message: msg.message,
+	})
+
+	if msg.success {
+		// Clear worktree info from manager
+		if a.manager != nil {
+			a.manager.ClearWorktreeInfo(msg.prdName, msg.clearBranch)
+		}
+		a.picker.Refresh()
+		a.lastActivity = fmt.Sprintf("Cleaned worktree for %s", msg.prdName)
+	}
+
+	return a, nil
+}
+
 // renderHelpView renders the help overlay.
 func (a *App) renderHelpView() string {
 	a.helpOverlay.SetSize(a.width, a.height)
@@ -1083,6 +1182,18 @@ func (a App) handlePickerKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 		}
+	}
+
+	// Dismiss clean result on any key
+	if a.picker.HasCleanResult() {
+		a.picker.ClearCleanResult()
+		a.picker.Refresh()
+		return a, nil
+	}
+
+	// Handle clean confirmation dialog
+	if a.picker.HasCleanConfirmation() {
+		return a.handleCleanConfirmationKeys(msg)
 	}
 
 	// Dismiss merge result on any key
@@ -1178,6 +1289,13 @@ func (a App) handlePickerKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				output := parseMergeSuccessMessage(baseDir, branch)
 				return mergeResultMsg{branch: branch, output: output}
 			}
+		}
+		return a, nil
+
+	case "c":
+		// Clean worktree for non-running PRD
+		if a.picker.CanClean() {
+			a.picker.StartCleanConfirmation()
 		}
 		return a, nil
 	}

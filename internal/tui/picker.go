@@ -34,6 +34,29 @@ type MergeResult struct {
 	Branch    string   // The branch that was merged
 }
 
+// CleanOption represents the user's choice in the clean confirmation dialog.
+type CleanOption int
+
+const (
+	CleanOptionRemoveAll    CleanOption = iota // Remove worktree + delete branch
+	CleanOptionWorktreeOnly                    // Remove worktree only (keep branch)
+	CleanOptionCancel                          // Cancel
+)
+
+// CleanConfirmation holds the state of the clean confirmation dialog.
+type CleanConfirmation struct {
+	EntryName    string // Name of the PRD being cleaned
+	Branch       string // Branch name to display
+	WorktreeDir  string // Worktree path to display
+	SelectedIdx  int    // Selected option index (0-2)
+}
+
+// CleanResult holds the result of a clean operation for display.
+type CleanResult struct {
+	Success bool   // Whether the clean succeeded
+	Message string // Success or error message
+}
+
 // PRDPicker manages the PRD picker modal state.
 type PRDPicker struct {
 	entries       []PRDEntry
@@ -44,8 +67,10 @@ type PRDPicker struct {
 	currentPRD    string        // Name of the currently active PRD
 	inputMode     bool          // Whether we're in input mode for new PRD name
 	inputValue    string        // The current input value for new PRD name
-	manager       *loop.Manager // Reference to the loop manager for status updates
-	mergeResult   *MergeResult  // Result of the last merge operation (nil = none)
+	manager            *loop.Manager      // Reference to the loop manager for status updates
+	mergeResult        *MergeResult       // Result of the last merge operation (nil = none)
+	cleanConfirmation  *CleanConfirmation // Active clean confirmation dialog (nil = none)
+	cleanResult        *CleanResult       // Result of the last clean operation (nil = none)
 }
 
 // NewPRDPicker creates a new PRD picker.
@@ -261,6 +286,91 @@ func (p *PRDPicker) HasMergeResult() bool {
 	return p.mergeResult != nil
 }
 
+// CanClean returns true if the selected entry is a non-running PRD with a worktree.
+func (p *PRDPicker) CanClean() bool {
+	entry := p.GetSelectedEntry()
+	if entry == nil || entry.WorktreeDir == "" {
+		return false
+	}
+	// Disabled for running PRDs - user must stop first
+	return entry.LoopState != loop.LoopStateRunning
+}
+
+// StartCleanConfirmation opens the clean confirmation dialog for the selected entry.
+func (p *PRDPicker) StartCleanConfirmation() {
+	entry := p.GetSelectedEntry()
+	if entry == nil {
+		return
+	}
+	p.cleanConfirmation = &CleanConfirmation{
+		EntryName:   entry.Name,
+		Branch:      entry.Branch,
+		WorktreeDir: p.worktreeDisplayPath(*entry),
+		SelectedIdx: 0,
+	}
+}
+
+// CancelCleanConfirmation closes the clean confirmation dialog.
+func (p *PRDPicker) CancelCleanConfirmation() {
+	p.cleanConfirmation = nil
+}
+
+// HasCleanConfirmation returns true if the clean confirmation dialog is active.
+func (p *PRDPicker) HasCleanConfirmation() bool {
+	return p.cleanConfirmation != nil
+}
+
+// GetCleanConfirmation returns the current clean confirmation state.
+func (p *PRDPicker) GetCleanConfirmation() *CleanConfirmation {
+	return p.cleanConfirmation
+}
+
+// CleanConfirmMoveUp moves the selection up in the clean confirmation dialog.
+func (p *PRDPicker) CleanConfirmMoveUp() {
+	if p.cleanConfirmation != nil && p.cleanConfirmation.SelectedIdx > 0 {
+		p.cleanConfirmation.SelectedIdx--
+	}
+}
+
+// CleanConfirmMoveDown moves the selection down in the clean confirmation dialog.
+func (p *PRDPicker) CleanConfirmMoveDown() {
+	if p.cleanConfirmation != nil && p.cleanConfirmation.SelectedIdx < 2 {
+		p.cleanConfirmation.SelectedIdx++
+	}
+}
+
+// GetCleanOption returns the selected clean option.
+func (p *PRDPicker) GetCleanOption() CleanOption {
+	if p.cleanConfirmation == nil {
+		return CleanOptionCancel
+	}
+	switch p.cleanConfirmation.SelectedIdx {
+	case 0:
+		return CleanOptionRemoveAll
+	case 1:
+		return CleanOptionWorktreeOnly
+	case 2:
+		return CleanOptionCancel
+	default:
+		return CleanOptionCancel
+	}
+}
+
+// SetCleanResult sets the clean result for display.
+func (p *PRDPicker) SetCleanResult(result *CleanResult) {
+	p.cleanResult = result
+}
+
+// ClearCleanResult clears any displayed clean result.
+func (p *PRDPicker) ClearCleanResult() {
+	p.cleanResult = nil
+}
+
+// HasCleanResult returns true if there is a clean result to display.
+func (p *PRDPicker) HasCleanResult() bool {
+	return p.cleanResult != nil
+}
+
 // Render renders the PRD picker modal.
 func (p *PRDPicker) Render() string {
 	// Modal dimensions
@@ -272,6 +382,16 @@ func (p *PRDPicker) Render() string {
 	}
 	if modalHeight < 10 {
 		modalHeight = 10
+	}
+
+	// If there's a clean result, render that instead
+	if p.cleanResult != nil {
+		return p.renderCleanResult(modalWidth, modalHeight)
+	}
+
+	// If there's a clean confirmation, render that instead
+	if p.cleanConfirmation != nil {
+		return p.renderCleanConfirmation(modalWidth, modalHeight)
 	}
 
 	// If there's a merge result, render that instead
@@ -580,16 +700,22 @@ func (p *PRDPicker) buildFooterShortcuts() string {
 		mergeHint = "m: merge  │  "
 	}
 
+	// Add clean shortcut for non-running PRDs with a worktree
+	cleanHint := ""
+	if p.CanClean() {
+		cleanHint = "c: clean  │  "
+	}
+
 	// Add state-specific controls
 	switch entry.LoopState {
 	case loop.LoopStateReady, loop.LoopStatePaused, loop.LoopStateStopped, loop.LoopStateError:
-		return "s: start  │  " + mergeHint + base
+		return "s: start  │  " + mergeHint + cleanHint + base
 	case loop.LoopStateRunning:
 		return "p: pause  │  x: stop  │  " + base
 	case loop.LoopStateComplete:
-		return mergeHint + base
+		return mergeHint + cleanHint + base
 	default:
-		return "s: start  │  " + mergeHint + base
+		return "s: start  │  " + mergeHint + cleanHint + base
 	}
 }
 
@@ -682,6 +808,134 @@ func (p *PRDPicker) renderMergeResult(modalWidth, modalHeight int) string {
 	modalStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(PrimaryColor).
+		Padding(1, 2).
+		Width(modalWidth).
+		Height(modalHeight)
+
+	modal := modalStyle.Render(content.String())
+	return p.centerModal(modal)
+}
+
+// renderCleanConfirmation renders the clean confirmation dialog.
+func (p *PRDPicker) renderCleanConfirmation(modalWidth, modalHeight int) string {
+	var content strings.Builder
+	cc := p.cleanConfirmation
+
+	// Title
+	titleStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(WarningColor).
+		Padding(0, 1)
+	content.WriteString(titleStyle.Render("Clean Worktree"))
+	content.WriteString("\n")
+	content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
+	content.WriteString("\n\n")
+
+	// Show what will be removed
+	infoStyle := lipgloss.NewStyle().
+		Foreground(TextColor).
+		Padding(0, 1)
+	content.WriteString(infoStyle.Render(fmt.Sprintf("PRD: %s", cc.EntryName)))
+	content.WriteString("\n")
+	content.WriteString(infoStyle.Render(fmt.Sprintf("Worktree: %s", cc.WorktreeDir)))
+	content.WriteString("\n")
+	if cc.Branch != "" {
+		content.WriteString(infoStyle.Render(fmt.Sprintf("Branch: %s", cc.Branch)))
+		content.WriteString("\n")
+	}
+	content.WriteString("\n")
+
+	// Options
+	options := []struct {
+		label string
+		hint  string
+	}{
+		{"Remove worktree + delete branch (Recommended)", "Removes worktree directory and deletes the local branch"},
+		{"Remove worktree only (keep branch)", "Removes worktree directory but keeps the branch for later use"},
+		{"Cancel", ""},
+	}
+
+	for i, opt := range options {
+		prefix := "  "
+		style := lipgloss.NewStyle().Foreground(TextColor)
+		if i == cc.SelectedIdx {
+			prefix = "▸ "
+			style = style.Bold(true).Foreground(TextBrightColor)
+		}
+		content.WriteString(style.Render(prefix + opt.label))
+		content.WriteString("\n")
+		if opt.hint != "" && i == cc.SelectedIdx {
+			hintStyle := lipgloss.NewStyle().Foreground(MutedColor).Padding(0, 2)
+			content.WriteString(hintStyle.Render("  " + opt.hint))
+			content.WriteString("\n")
+		}
+	}
+
+	// Footer
+	content.WriteString("\n")
+	content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
+	content.WriteString("\n")
+	footerStyle := lipgloss.NewStyle().
+		Foreground(MutedColor).
+		Padding(0, 1)
+	content.WriteString(footerStyle.Render("↑/k ↓/j: nav  │  Enter: confirm  │  Esc: cancel"))
+
+	// Modal box style
+	modalStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(WarningColor).
+		Padding(1, 2).
+		Width(modalWidth).
+		Height(modalHeight)
+
+	modal := modalStyle.Render(content.String())
+	return p.centerModal(modal)
+}
+
+// renderCleanResult renders the clean result dialog.
+func (p *PRDPicker) renderCleanResult(modalWidth, modalHeight int) string {
+	var content strings.Builder
+
+	if p.cleanResult.Success {
+		titleStyle := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(SuccessColor).
+			Padding(0, 1)
+		content.WriteString(titleStyle.Render("Clean Successful"))
+	} else {
+		titleStyle := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(ErrorColor).
+			Padding(0, 1)
+		content.WriteString(titleStyle.Render("Clean Failed"))
+	}
+	content.WriteString("\n")
+	content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
+	content.WriteString("\n\n")
+
+	msgStyle := lipgloss.NewStyle().
+		Foreground(TextColor).
+		Padding(0, 1)
+	content.WriteString(msgStyle.Render(p.cleanResult.Message))
+	content.WriteString("\n")
+
+	// Footer
+	content.WriteString("\n")
+	content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
+	content.WriteString("\n")
+	footerStyle := lipgloss.NewStyle().
+		Foreground(MutedColor).
+		Padding(0, 1)
+	content.WriteString(footerStyle.Render("Press any key to continue"))
+
+	// Modal box style
+	borderColor := SuccessColor
+	if !p.cleanResult.Success {
+		borderColor = ErrorColor
+	}
+	modalStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(borderColor).
 		Padding(1, 2).
 		Width(modalWidth).
 		Height(modalHeight)

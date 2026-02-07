@@ -370,6 +370,27 @@ func (m *Manager) Stop(name string) error {
 	return nil
 }
 
+// ClearWorktreeInfo clears the worktree directory and optionally the branch for a PRD instance.
+func (m *Manager) ClearWorktreeInfo(name string, clearBranch bool) error {
+	m.mu.RLock()
+	instance, exists := m.instances[name]
+	m.mu.RUnlock()
+
+	if !exists {
+		return fmt.Errorf("PRD %s not found", name)
+	}
+
+	instance.mu.Lock()
+	defer instance.mu.Unlock()
+
+	instance.WorktreeDir = ""
+	if clearBranch {
+		instance.Branch = ""
+	}
+
+	return nil
+}
+
 // GetState returns the state of a specific PRD loop.
 func (m *Manager) GetState(name string) (LoopState, int, error) {
 	m.mu.RLock()

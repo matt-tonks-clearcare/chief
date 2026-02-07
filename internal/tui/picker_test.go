@@ -417,6 +417,368 @@ func TestFooterHidesMergeHintForRunningPRD(t *testing.T) {
 	}
 }
 
+// --- Clean Action Tests ---
+
+func TestCanCleanNonRunningWithWorktree(t *testing.T) {
+	p := &PRDPicker{
+		basePath: "/project",
+		entries: []PRDEntry{
+			{
+				Name:        "auth",
+				Completed:   8,
+				Total:       8,
+				LoopState:   loop.LoopStateComplete,
+				Branch:      "chief/auth",
+				WorktreeDir: "/project/.chief/worktrees/auth",
+			},
+		},
+		selectedIndex: 0,
+	}
+	if !p.CanClean() {
+		t.Error("expected CanClean() to return true for completed non-running PRD with worktree")
+	}
+}
+
+func TestCanCleanDisabledForRunningPRD(t *testing.T) {
+	p := &PRDPicker{
+		basePath: "/project",
+		entries: []PRDEntry{
+			{
+				Name:        "auth",
+				Completed:   3,
+				Total:       8,
+				LoopState:   loop.LoopStateRunning,
+				Branch:      "chief/auth",
+				WorktreeDir: "/project/.chief/worktrees/auth",
+			},
+		},
+		selectedIndex: 0,
+	}
+	if p.CanClean() {
+		t.Error("expected CanClean() to return false for running PRD")
+	}
+}
+
+func TestCanCleanDisabledWithoutWorktree(t *testing.T) {
+	p := &PRDPicker{
+		basePath: "/project",
+		entries: []PRDEntry{
+			{
+				Name:      "auth",
+				Completed: 8,
+				Total:     8,
+				LoopState: loop.LoopStateComplete,
+				Branch:    "chief/auth",
+			},
+		},
+		selectedIndex: 0,
+	}
+	if p.CanClean() {
+		t.Error("expected CanClean() to return false for PRD without worktree")
+	}
+}
+
+func TestCanCleanStoppedPRD(t *testing.T) {
+	p := &PRDPicker{
+		basePath: "/project",
+		entries: []PRDEntry{
+			{
+				Name:        "auth",
+				Completed:   3,
+				Total:       8,
+				LoopState:   loop.LoopStateStopped,
+				Branch:      "chief/auth",
+				WorktreeDir: "/project/.chief/worktrees/auth",
+			},
+		},
+		selectedIndex: 0,
+	}
+	if !p.CanClean() {
+		t.Error("expected CanClean() to return true for stopped PRD with worktree")
+	}
+}
+
+func TestCleanConfirmationDialog(t *testing.T) {
+	p := &PRDPicker{
+		basePath: "/project",
+		entries: []PRDEntry{
+			{
+				Name:        "auth",
+				Completed:   8,
+				Total:       8,
+				LoopState:   loop.LoopStateComplete,
+				Branch:      "chief/auth",
+				WorktreeDir: "/project/.chief/worktrees/auth",
+			},
+		},
+		selectedIndex: 0,
+	}
+
+	// Start clean confirmation
+	p.StartCleanConfirmation()
+
+	if !p.HasCleanConfirmation() {
+		t.Fatal("expected HasCleanConfirmation() to return true after start")
+	}
+
+	cc := p.GetCleanConfirmation()
+	if cc.EntryName != "auth" {
+		t.Errorf("expected EntryName 'auth', got %q", cc.EntryName)
+	}
+	if cc.Branch != "chief/auth" {
+		t.Errorf("expected Branch 'chief/auth', got %q", cc.Branch)
+	}
+	if cc.SelectedIdx != 0 {
+		t.Errorf("expected SelectedIdx 0, got %d", cc.SelectedIdx)
+	}
+
+	// Default selection is RemoveAll
+	if p.GetCleanOption() != CleanOptionRemoveAll {
+		t.Errorf("expected CleanOptionRemoveAll by default, got %d", p.GetCleanOption())
+	}
+}
+
+func TestCleanConfirmationNavigation(t *testing.T) {
+	p := &PRDPicker{
+		basePath: "/project",
+		entries: []PRDEntry{
+			{
+				Name:        "auth",
+				Branch:      "chief/auth",
+				WorktreeDir: "/project/.chief/worktrees/auth",
+			},
+		},
+		selectedIndex: 0,
+	}
+	p.StartCleanConfirmation()
+
+	// Move down to "Remove worktree only"
+	p.CleanConfirmMoveDown()
+	if p.GetCleanOption() != CleanOptionWorktreeOnly {
+		t.Errorf("expected CleanOptionWorktreeOnly after move down, got %d", p.GetCleanOption())
+	}
+
+	// Move down to "Cancel"
+	p.CleanConfirmMoveDown()
+	if p.GetCleanOption() != CleanOptionCancel {
+		t.Errorf("expected CleanOptionCancel after two moves down, got %d", p.GetCleanOption())
+	}
+
+	// Move down again - should stay at Cancel (index 2)
+	p.CleanConfirmMoveDown()
+	if p.GetCleanOption() != CleanOptionCancel {
+		t.Errorf("expected CleanOptionCancel to remain after extra move down, got %d", p.GetCleanOption())
+	}
+
+	// Move back up
+	p.CleanConfirmMoveUp()
+	if p.GetCleanOption() != CleanOptionWorktreeOnly {
+		t.Errorf("expected CleanOptionWorktreeOnly after move up, got %d", p.GetCleanOption())
+	}
+}
+
+func TestCleanConfirmationCancel(t *testing.T) {
+	p := &PRDPicker{
+		basePath: "/project",
+		entries: []PRDEntry{
+			{
+				Name:        "auth",
+				Branch:      "chief/auth",
+				WorktreeDir: "/project/.chief/worktrees/auth",
+			},
+		},
+		selectedIndex: 0,
+	}
+	p.StartCleanConfirmation()
+
+	if !p.HasCleanConfirmation() {
+		t.Fatal("expected confirmation to be active")
+	}
+
+	p.CancelCleanConfirmation()
+
+	if p.HasCleanConfirmation() {
+		t.Error("expected confirmation to be cancelled")
+	}
+}
+
+func TestCleanConfirmationRendering(t *testing.T) {
+	p := &PRDPicker{
+		basePath: "/project",
+		width:    80,
+		height:   24,
+		entries: []PRDEntry{
+			{
+				Name:        "auth",
+				Completed:   8,
+				Total:       8,
+				LoopState:   loop.LoopStateComplete,
+				Branch:      "chief/auth",
+				WorktreeDir: "/project/.chief/worktrees/auth",
+			},
+		},
+		selectedIndex: 0,
+	}
+	p.StartCleanConfirmation()
+
+	result := p.Render()
+	stripped := stripAnsi(result)
+
+	if !containsText(result, "Clean Worktree") {
+		t.Errorf("expected 'Clean Worktree' in render, got: %s", stripped)
+	}
+	if !containsText(result, "auth") {
+		t.Errorf("expected PRD name 'auth' in render, got: %s", stripped)
+	}
+	if !containsText(result, "chief/auth") {
+		t.Errorf("expected branch 'chief/auth' in render, got: %s", stripped)
+	}
+	if !containsText(result, "Remove worktree + delete branch") {
+		t.Errorf("expected option text in render, got: %s", stripped)
+	}
+	if !containsText(result, "Remove worktree only") {
+		t.Errorf("expected option text in render, got: %s", stripped)
+	}
+	if !containsText(result, "Cancel") {
+		t.Errorf("expected 'Cancel' option in render, got: %s", stripped)
+	}
+}
+
+func TestCleanResultSuccessRendering(t *testing.T) {
+	p := &PRDPicker{
+		basePath: "/project",
+		width:    80,
+		height:   24,
+		entries: []PRDEntry{
+			{Name: "auth"},
+		},
+		cleanResult: &CleanResult{
+			Success: true,
+			Message: "Removed worktree and deleted branch chief/auth",
+		},
+	}
+
+	result := p.Render()
+	if !containsText(result, "Clean Successful") {
+		t.Errorf("expected 'Clean Successful' in success render, got: %s", stripAnsi(result))
+	}
+	if !containsText(result, "Removed worktree and deleted branch chief/auth") {
+		t.Errorf("expected clean message in output, got: %s", stripAnsi(result))
+	}
+	if !containsText(result, "Press any key to continue") {
+		t.Errorf("expected dismiss hint in output, got: %s", stripAnsi(result))
+	}
+}
+
+func TestCleanResultErrorRendering(t *testing.T) {
+	p := &PRDPicker{
+		basePath: "/project",
+		width:    80,
+		height:   24,
+		entries: []PRDEntry{
+			{Name: "auth"},
+		},
+		cleanResult: &CleanResult{
+			Success: false,
+			Message: "Failed to remove worktree: permission denied",
+		},
+	}
+
+	result := p.Render()
+	if !containsText(result, "Clean Failed") {
+		t.Errorf("expected 'Clean Failed' in error render, got: %s", stripAnsi(result))
+	}
+	if !containsText(result, "permission denied") {
+		t.Errorf("expected error message in output, got: %s", stripAnsi(result))
+	}
+}
+
+func TestCleanResultClearsOnDismiss(t *testing.T) {
+	p := &PRDPicker{
+		basePath: "/project",
+		cleanResult: &CleanResult{
+			Success: true,
+			Message: "Cleaned",
+		},
+	}
+
+	if !p.HasCleanResult() {
+		t.Error("expected HasCleanResult() to return true")
+	}
+
+	p.ClearCleanResult()
+
+	if p.HasCleanResult() {
+		t.Error("expected HasCleanResult() to return false after clear")
+	}
+}
+
+func TestFooterShowsCleanHintForNonRunningPRDWithWorktree(t *testing.T) {
+	p := &PRDPicker{
+		basePath: "/project",
+		entries: []PRDEntry{
+			{
+				Name:        "auth",
+				Completed:   8,
+				Total:       8,
+				LoopState:   loop.LoopStateComplete,
+				Branch:      "chief/auth",
+				WorktreeDir: "/project/.chief/worktrees/auth",
+			},
+		},
+		selectedIndex: 0,
+	}
+
+	shortcuts := p.buildFooterShortcuts()
+	if !containsSubstring(shortcuts, "c: clean") {
+		t.Errorf("expected 'c: clean' in footer for completed PRD with worktree, got: %s", shortcuts)
+	}
+}
+
+func TestFooterHidesCleanHintForRunningPRD(t *testing.T) {
+	p := &PRDPicker{
+		basePath: "/project",
+		entries: []PRDEntry{
+			{
+				Name:        "auth",
+				Completed:   3,
+				Total:       8,
+				LoopState:   loop.LoopStateRunning,
+				Iteration:   2,
+				Branch:      "chief/auth",
+				WorktreeDir: "/project/.chief/worktrees/auth",
+			},
+		},
+		selectedIndex: 0,
+	}
+
+	shortcuts := p.buildFooterShortcuts()
+	if containsSubstring(shortcuts, "c: clean") {
+		t.Errorf("expected no 'c: clean' in footer for running PRD, got: %s", shortcuts)
+	}
+}
+
+func TestFooterHidesCleanHintForPRDWithoutWorktree(t *testing.T) {
+	p := &PRDPicker{
+		basePath: "/project",
+		entries: []PRDEntry{
+			{
+				Name:      "auth",
+				Completed: 8,
+				Total:     8,
+				LoopState: loop.LoopStateComplete,
+				Branch:    "chief/auth",
+			},
+		},
+		selectedIndex: 0,
+	}
+
+	shortcuts := p.buildFooterShortcuts()
+	if containsSubstring(shortcuts, "c: clean") {
+		t.Errorf("expected no 'c: clean' in footer for PRD without worktree, got: %s", shortcuts)
+	}
+}
+
 // containsText checks if rendered output contains a substring (ignoring ANSI codes).
 func containsText(rendered, substr string) bool {
 	// Strip ANSI escape sequences for comparison
