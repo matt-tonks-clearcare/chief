@@ -69,6 +69,14 @@ type PRDCompletedMsg struct {
 	PRDName string
 }
 
+// mergeResultMsg is sent when a merge operation completes.
+type mergeResultMsg struct {
+	branch    string
+	conflicts []string
+	output    string
+	err       error
+}
+
 // worktreeStepResultMsg is sent when a worktree setup step completes.
 type worktreeStepResultMsg struct {
 	step WorktreeSpinnerStep
@@ -336,6 +344,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		a.picker.Refresh()
 		return a, nil
+
+	case mergeResultMsg:
+		return a.handleMergeResult(msg)
 
 	case worktreeStepResultMsg:
 		return a.handleWorktreeStepResult(msg)
@@ -1015,6 +1026,26 @@ func (a App) finishWorktreeSetup() (tea.Model, tea.Cmd) {
 	return a.doStartLoop(prdName, prdDir)
 }
 
+// handleMergeResult handles the result of an async merge operation.
+func (a App) handleMergeResult(msg mergeResultMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		a.picker.SetMergeResult(&MergeResult{
+			Success:   false,
+			Message:   fmt.Sprintf("Failed to merge %s into current branch", msg.branch),
+			Conflicts: msg.conflicts,
+			Branch:    msg.branch,
+		})
+	} else {
+		a.picker.SetMergeResult(&MergeResult{
+			Success: true,
+			Message: msg.output,
+			Branch:  msg.branch,
+		})
+		a.lastActivity = fmt.Sprintf("Merged %s", msg.branch)
+	}
+	return a, nil
+}
+
 // renderHelpView renders the help overlay.
 func (a *App) renderHelpView() string {
 	a.helpOverlay.SetSize(a.width, a.height)
@@ -1052,6 +1083,13 @@ func (a App) handlePickerKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 		}
+	}
+
+	// Dismiss merge result on any key
+	if a.picker.HasMergeResult() {
+		a.picker.ClearMergeResult()
+		a.picker.Refresh()
+		return a, nil
 	}
 
 	// Normal picker mode
@@ -1124,9 +1162,37 @@ func (a App) handlePickerKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return a, nil
+
+	case "m":
+		// Merge completed PRD's branch
+		if a.picker.CanMerge() {
+			entry := a.picker.GetSelectedEntry()
+			branch := entry.Branch
+			baseDir := a.baseDir
+			return a, func() tea.Msg {
+				conflicts, err := git.MergeBranch(baseDir, branch)
+				if err != nil {
+					return mergeResultMsg{branch: branch, conflicts: conflicts, err: err}
+				}
+				// Build success message with merge details
+				output := parseMergeSuccessMessage(baseDir, branch)
+				return mergeResultMsg{branch: branch, output: output}
+			}
+		}
+		return a, nil
 	}
 
 	return a, nil
+}
+
+// parseMergeSuccessMessage constructs a success message after a merge.
+func parseMergeSuccessMessage(repoDir, branch string) string {
+	// Try to get the default branch for display
+	defaultBranch := "current branch"
+	if db, err := git.GetDefaultBranch(repoDir); err == nil {
+		defaultBranch = db
+	}
+	return fmt.Sprintf("Merged %s into %s", branch, defaultBranch)
 }
 
 // switchToPRD switches to a different PRD (view only - does not stop other loops).

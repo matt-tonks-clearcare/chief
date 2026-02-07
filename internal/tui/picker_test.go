@@ -218,6 +218,205 @@ func TestRenderEntryWithLoadError(t *testing.T) {
 	}
 }
 
+func TestCanMergeCompletedWithBranch(t *testing.T) {
+	p := &PRDPicker{
+		basePath: "/project",
+		entries: []PRDEntry{
+			{
+				Name:      "auth",
+				Completed: 8,
+				Total:     8,
+				LoopState: loop.LoopStateComplete,
+				Branch:    "chief/auth",
+			},
+		},
+		selectedIndex: 0,
+	}
+	if !p.CanMerge() {
+		t.Error("expected CanMerge() to return true for completed PRD with branch")
+	}
+}
+
+func TestCanMergeNoBranch(t *testing.T) {
+	p := &PRDPicker{
+		basePath: "/project",
+		entries: []PRDEntry{
+			{
+				Name:      "auth",
+				Completed: 8,
+				Total:     8,
+				LoopState: loop.LoopStateComplete,
+				Branch:    "",
+			},
+		},
+		selectedIndex: 0,
+	}
+	if p.CanMerge() {
+		t.Error("expected CanMerge() to return false for completed PRD without branch")
+	}
+}
+
+func TestCanMergeRunningPRD(t *testing.T) {
+	p := &PRDPicker{
+		basePath: "/project",
+		entries: []PRDEntry{
+			{
+				Name:      "auth",
+				Completed: 3,
+				Total:     8,
+				LoopState: loop.LoopStateRunning,
+				Branch:    "chief/auth",
+			},
+		},
+		selectedIndex: 0,
+	}
+	if p.CanMerge() {
+		t.Error("expected CanMerge() to return false for running PRD")
+	}
+}
+
+func TestCanMergeAllPassedButNotCompleteState(t *testing.T) {
+	// All stories pass but loop state is Ready (e.g., not started via loop)
+	p := &PRDPicker{
+		basePath: "/project",
+		entries: []PRDEntry{
+			{
+				Name:      "auth",
+				Completed: 5,
+				Total:     5,
+				LoopState: loop.LoopStateReady,
+				Branch:    "chief/auth",
+			},
+		},
+		selectedIndex: 0,
+	}
+	if !p.CanMerge() {
+		t.Error("expected CanMerge() to return true when all stories pass, even if LoopState is Ready")
+	}
+}
+
+func TestMergeResultSuccessRendering(t *testing.T) {
+	p := &PRDPicker{
+		basePath: "/project",
+		width:    80,
+		height:   24,
+		entries: []PRDEntry{
+			{Name: "auth", Branch: "chief/auth"},
+		},
+		mergeResult: &MergeResult{
+			Success: true,
+			Message: "Merged chief/auth into main",
+			Branch:  "chief/auth",
+		},
+	}
+
+	result := p.Render()
+	if !containsText(result, "Merge Successful") {
+		t.Errorf("expected 'Merge Successful' in success render, got: %s", stripAnsi(result))
+	}
+	if !containsText(result, "Merged chief/auth into main") {
+		t.Errorf("expected merge message in output, got: %s", stripAnsi(result))
+	}
+	if !containsText(result, "Press any key to continue") {
+		t.Errorf("expected dismiss hint in output, got: %s", stripAnsi(result))
+	}
+}
+
+func TestMergeResultConflictRendering(t *testing.T) {
+	p := &PRDPicker{
+		basePath: "/project",
+		width:    80,
+		height:   24,
+		entries: []PRDEntry{
+			{Name: "auth", Branch: "chief/auth"},
+		},
+		mergeResult: &MergeResult{
+			Success:   false,
+			Message:   "Failed to merge chief/auth into current branch",
+			Conflicts: []string{"src/auth.go", "src/handler.go"},
+			Branch:    "chief/auth",
+		},
+	}
+
+	result := p.Render()
+	if !containsText(result, "Merge Conflict") {
+		t.Errorf("expected 'Merge Conflict' in conflict render, got: %s", stripAnsi(result))
+	}
+	if !containsText(result, "src/auth.go") {
+		t.Errorf("expected conflicting file in output, got: %s", stripAnsi(result))
+	}
+	if !containsText(result, "src/handler.go") {
+		t.Errorf("expected conflicting file in output, got: %s", stripAnsi(result))
+	}
+	if !containsText(result, "git merge chief/auth") {
+		t.Errorf("expected manual merge instruction in output, got: %s", stripAnsi(result))
+	}
+}
+
+func TestMergeResultClearsOnDismiss(t *testing.T) {
+	p := &PRDPicker{
+		basePath: "/project",
+		mergeResult: &MergeResult{
+			Success: true,
+			Message: "Merged",
+			Branch:  "chief/auth",
+		},
+	}
+
+	if !p.HasMergeResult() {
+		t.Error("expected HasMergeResult() to return true")
+	}
+
+	p.ClearMergeResult()
+
+	if p.HasMergeResult() {
+		t.Error("expected HasMergeResult() to return false after clear")
+	}
+}
+
+func TestFooterShowsMergeHintForCompletedPRD(t *testing.T) {
+	p := &PRDPicker{
+		basePath: "/project",
+		entries: []PRDEntry{
+			{
+				Name:      "auth",
+				Completed: 8,
+				Total:     8,
+				LoopState: loop.LoopStateComplete,
+				Branch:    "chief/auth",
+			},
+		},
+		selectedIndex: 0,
+	}
+
+	shortcuts := p.buildFooterShortcuts()
+	if !containsSubstring(shortcuts, "m: merge") {
+		t.Errorf("expected 'm: merge' in footer for completed PRD with branch, got: %s", shortcuts)
+	}
+}
+
+func TestFooterHidesMergeHintForRunningPRD(t *testing.T) {
+	p := &PRDPicker{
+		basePath: "/project",
+		entries: []PRDEntry{
+			{
+				Name:      "auth",
+				Completed: 3,
+				Total:     8,
+				LoopState: loop.LoopStateRunning,
+				Iteration: 2,
+				Branch:    "chief/auth",
+			},
+		},
+		selectedIndex: 0,
+	}
+
+	shortcuts := p.buildFooterShortcuts()
+	if containsSubstring(shortcuts, "m: merge") {
+		t.Errorf("expected no 'm: merge' in footer for running PRD, got: %s", shortcuts)
+	}
+}
+
 // containsText checks if rendered output contains a substring (ignoring ANSI codes).
 func containsText(rendered, substr string) bool {
 	// Strip ANSI escape sequences for comparison

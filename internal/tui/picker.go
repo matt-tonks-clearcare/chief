@@ -26,6 +26,14 @@ type PRDEntry struct {
 	WorktreeDir string         // Worktree directory (empty = current directory)
 }
 
+// MergeResult holds the result of a merge operation for display.
+type MergeResult struct {
+	Success   bool     // Whether the merge succeeded
+	Message   string   // Success message or error summary
+	Conflicts []string // Conflicting file list (empty on success)
+	Branch    string   // The branch that was merged
+}
+
 // PRDPicker manages the PRD picker modal state.
 type PRDPicker struct {
 	entries       []PRDEntry
@@ -37,6 +45,7 @@ type PRDPicker struct {
 	inputMode     bool          // Whether we're in input mode for new PRD name
 	inputValue    string        // The current input value for new PRD name
 	manager       *loop.Manager // Reference to the loop manager for status updates
+	mergeResult   *MergeResult  // Result of the last merge operation (nil = none)
 }
 
 // NewPRDPicker creates a new PRD picker.
@@ -227,6 +236,31 @@ func (p *PRDPicker) SetCurrentPRD(name string) {
 	p.currentPRD = name
 }
 
+// CanMerge returns true if the selected entry is a completed PRD with a branch set.
+func (p *PRDPicker) CanMerge() bool {
+	entry := p.GetSelectedEntry()
+	if entry == nil || entry.Branch == "" {
+		return false
+	}
+	// Allow merge for completed loop state or all stories passed
+	return entry.LoopState == loop.LoopStateComplete || (entry.Completed == entry.Total && entry.Total > 0)
+}
+
+// SetMergeResult sets the merge result for display.
+func (p *PRDPicker) SetMergeResult(result *MergeResult) {
+	p.mergeResult = result
+}
+
+// ClearMergeResult clears any displayed merge result.
+func (p *PRDPicker) ClearMergeResult() {
+	p.mergeResult = nil
+}
+
+// HasMergeResult returns true if there is a merge result to display.
+func (p *PRDPicker) HasMergeResult() bool {
+	return p.mergeResult != nil
+}
+
 // Render renders the PRD picker modal.
 func (p *PRDPicker) Render() string {
 	// Modal dimensions
@@ -238,6 +272,11 @@ func (p *PRDPicker) Render() string {
 	}
 	if modalHeight < 10 {
 		modalHeight = 10
+	}
+
+	// If there's a merge result, render that instead
+	if p.mergeResult != nil {
+		return p.renderMergeResult(modalWidth, modalHeight)
 	}
 
 	// Build modal content
@@ -535,17 +574,120 @@ func (p *PRDPicker) buildFooterShortcuts() string {
 	// Base shortcuts
 	base := "Enter: select  │  n: new  │  e: edit  │  Esc/l: close"
 
+	// Add merge shortcut for completed PRDs with a branch
+	mergeHint := ""
+	if p.CanMerge() {
+		mergeHint = "m: merge  │  "
+	}
+
 	// Add state-specific controls
 	switch entry.LoopState {
 	case loop.LoopStateReady, loop.LoopStatePaused, loop.LoopStateStopped, loop.LoopStateError:
-		return "s: start  │  " + base
+		return "s: start  │  " + mergeHint + base
 	case loop.LoopStateRunning:
 		return "p: pause  │  x: stop  │  " + base
 	case loop.LoopStateComplete:
-		return base
+		return mergeHint + base
 	default:
-		return "s: start  │  " + base
+		return "s: start  │  " + mergeHint + base
 	}
+}
+
+// renderMergeResult renders the merge result dialog.
+func (p *PRDPicker) renderMergeResult(modalWidth, modalHeight int) string {
+	var content strings.Builder
+
+	if p.mergeResult.Success {
+		// Success display
+		titleStyle := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(SuccessColor).
+			Padding(0, 1)
+		content.WriteString(titleStyle.Render("Merge Successful"))
+		content.WriteString("\n")
+		content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
+		content.WriteString("\n\n")
+
+		msgStyle := lipgloss.NewStyle().
+			Foreground(TextColor).
+			Padding(0, 1)
+		content.WriteString(msgStyle.Render(p.mergeResult.Message))
+		content.WriteString("\n")
+	} else {
+		// Error/conflict display
+		titleStyle := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(ErrorColor).
+			Padding(0, 1)
+		content.WriteString(titleStyle.Render("Merge Conflict"))
+		content.WriteString("\n")
+		content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
+		content.WriteString("\n\n")
+
+		msgStyle := lipgloss.NewStyle().
+			Foreground(TextColor).
+			Padding(0, 1)
+		content.WriteString(msgStyle.Render(p.mergeResult.Message))
+		content.WriteString("\n\n")
+
+		if len(p.mergeResult.Conflicts) > 0 {
+			conflictHeaderStyle := lipgloss.NewStyle().
+				Bold(true).
+				Foreground(WarningColor).
+				Padding(0, 1)
+			content.WriteString(conflictHeaderStyle.Render("Conflicting files:"))
+			content.WriteString("\n")
+
+			conflictStyle := lipgloss.NewStyle().
+				Foreground(MutedColor).
+				Padding(0, 2)
+			maxFiles := modalHeight - 12
+			if maxFiles < 3 {
+				maxFiles = 3
+			}
+			for i, f := range p.mergeResult.Conflicts {
+				if i >= maxFiles {
+					content.WriteString(conflictStyle.Render(fmt.Sprintf("  ... and %d more", len(p.mergeResult.Conflicts)-maxFiles)))
+					content.WriteString("\n")
+					break
+				}
+				content.WriteString(conflictStyle.Render("  " + f))
+				content.WriteString("\n")
+			}
+
+			content.WriteString("\n")
+			hintStyle := lipgloss.NewStyle().
+				Foreground(MutedColor).
+				Padding(0, 1)
+			content.WriteString(hintStyle.Render("To resolve manually:"))
+			content.WriteString("\n")
+			content.WriteString(hintStyle.Render(fmt.Sprintf("  cd <project-root>")))
+			content.WriteString("\n")
+			content.WriteString(hintStyle.Render(fmt.Sprintf("  git merge %s", p.mergeResult.Branch)))
+			content.WriteString("\n")
+			content.WriteString(hintStyle.Render("  # resolve conflicts, then git commit"))
+			content.WriteString("\n")
+		}
+	}
+
+	// Footer
+	content.WriteString(DividerStyle.Render(strings.Repeat("─", modalWidth-4)))
+	content.WriteString("\n")
+	footerStyle := lipgloss.NewStyle().
+		Foreground(MutedColor).
+		Padding(0, 1)
+	content.WriteString(footerStyle.Render("Press any key to continue"))
+
+	// Modal box style
+	modalStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(PrimaryColor).
+		Padding(1, 2).
+		Width(modalWidth).
+		Height(modalHeight)
+
+	modal := modalStyle.Render(content.String())
+	return p.centerModal(modal)
 }
 
 // centerModal centers the modal on the screen.
