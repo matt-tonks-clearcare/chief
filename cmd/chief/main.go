@@ -303,10 +303,11 @@ func runTUIWithOptions(opts *TUIOptions) {
 				return
 			}
 
-			// Save post-completion config
+			// Save config from setup
 			cfg := config.Default()
 			cfg.OnComplete.Push = result.PushOnComplete
 			cfg.OnComplete.CreatePR = result.CreatePROnComplete
+			cfg.Worktree.Setup = result.WorktreeSetup
 			if err := config.Save(cwd, cfg); err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: failed to save config: %v\n", err)
 			}
