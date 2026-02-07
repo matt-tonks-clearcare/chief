@@ -383,6 +383,15 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 
+		// List PRDs (opens picker in selection mode)
+		case "l":
+			if a.viewMode == ViewDashboard || a.viewMode == ViewLog {
+				a.picker.Refresh()
+				a.picker.SetSize(a.width, a.height)
+				a.viewMode = ViewPicker
+			}
+			return a, nil
+
 		// Number keys 1-9 to switch PRDs
 		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
 			if a.viewMode == ViewDashboard || a.viewMode == ViewLog {

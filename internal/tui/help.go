@@ -67,6 +67,7 @@ func (h *HelpOverlay) GetCategories() []ShortcutCategory {
 		Shortcuts: []Shortcut{
 			{Key: "1-9", Description: "Switch to PRD"},
 			{Key: "n", Description: "Create new PRD"},
+			{Key: "l", Description: "List/manage PRDs"},
 		},
 	}
 
