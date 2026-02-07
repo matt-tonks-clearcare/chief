@@ -210,6 +210,7 @@ func NewAppWithOptions(prdPath string, maxIter int) (*App, error) {
 
 	// Create loop manager for parallel PRD execution
 	manager := loop.NewManager(maxIter)
+	manager.SetConfig(cfg)
 
 	// Register the initial PRD with the manager
 	manager.Register(prdName, prdPath)
