@@ -7,6 +7,16 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// AutoActionState represents the progress of an auto-action (push or PR).
+type AutoActionState int
+
+const (
+	AutoActionIdle       AutoActionState = iota // Not configured or not started
+	AutoActionInProgress                        // Currently running
+	AutoActionSuccess                           // Completed successfully
+	AutoActionError                             // Failed with error
+)
+
 // CompletionScreen manages the completion screen state shown when a PRD finishes.
 type CompletionScreen struct {
 	width  int
@@ -18,6 +28,15 @@ type CompletionScreen struct {
 	branch     string
 	commitCount int
 	hasAutoActions bool // Whether push/PR auto-actions are configured
+
+	// Auto-action state
+	pushState    AutoActionState
+	pushError    string
+	prState      AutoActionState
+	prError      string
+	prURL        string
+	prTitle      string
+	spinnerFrame int
 }
 
 // NewCompletionScreen creates a new completion screen.
@@ -33,6 +52,14 @@ func (c *CompletionScreen) Configure(prdName string, completed, total int, branc
 	c.branch = branch
 	c.commitCount = commitCount
 	c.hasAutoActions = hasAutoActions
+	// Reset auto-action state
+	c.pushState = AutoActionIdle
+	c.pushError = ""
+	c.prState = AutoActionIdle
+	c.prError = ""
+	c.prURL = ""
+	c.prTitle = ""
+	c.spinnerFrame = 0
 }
 
 // SetSize sets the screen dimensions.
@@ -54,6 +81,50 @@ func (c *CompletionScreen) Branch() string {
 // HasBranch returns true if the completion screen has a branch set.
 func (c *CompletionScreen) HasBranch() bool {
 	return c.branch != ""
+}
+
+// SetPushInProgress marks the push as in progress.
+func (c *CompletionScreen) SetPushInProgress() {
+	c.pushState = AutoActionInProgress
+}
+
+// SetPushSuccess marks the push as successful.
+func (c *CompletionScreen) SetPushSuccess() {
+	c.pushState = AutoActionSuccess
+}
+
+// SetPushError marks the push as failed with an error message.
+func (c *CompletionScreen) SetPushError(errMsg string) {
+	c.pushState = AutoActionError
+	c.pushError = errMsg
+}
+
+// SetPRInProgress marks the PR creation as in progress.
+func (c *CompletionScreen) SetPRInProgress() {
+	c.prState = AutoActionInProgress
+}
+
+// SetPRSuccess marks the PR creation as successful.
+func (c *CompletionScreen) SetPRSuccess(url, title string) {
+	c.prState = AutoActionSuccess
+	c.prURL = url
+	c.prTitle = title
+}
+
+// SetPRError marks the PR creation as failed with an error message.
+func (c *CompletionScreen) SetPRError(errMsg string) {
+	c.prState = AutoActionError
+	c.prError = errMsg
+}
+
+// Tick advances the spinner animation frame.
+func (c *CompletionScreen) Tick() {
+	c.spinnerFrame++
+}
+
+// IsAutoActionRunning returns true if any auto-action is currently in progress.
+func (c *CompletionScreen) IsAutoActionRunning() bool {
+	return c.pushState == AutoActionInProgress || c.prState == AutoActionInProgress
 }
 
 // Render renders the completion screen.
@@ -98,8 +169,12 @@ func (c *CompletionScreen) Render() string {
 	}
 	content.WriteString("\n")
 
-	// Auto-actions hint
-	if !c.hasAutoActions {
+	// Auto-actions progress or hint
+	if c.pushState != AutoActionIdle || c.prState != AutoActionIdle {
+		// Show auto-action progress
+		content.WriteString(c.renderAutoActions(modalWidth))
+		content.WriteString("\n")
+	} else if !c.hasAutoActions {
 		hintStyle := lipgloss.NewStyle().
 			Foreground(MutedColor).
 			Padding(0, 1)
@@ -136,6 +211,60 @@ func (c *CompletionScreen) Render() string {
 
 	// Center the modal on screen
 	return centerModal(modal, c.width, c.height)
+}
+
+// spinnerChars are the animation frames for the completion screen spinner.
+var spinnerChars = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+// renderAutoActions renders the auto-action progress section.
+func (c *CompletionScreen) renderAutoActions(modalWidth int) string {
+	var lines strings.Builder
+
+	infoStyle := lipgloss.NewStyle().
+		Foreground(TextColor).
+		Padding(0, 1)
+	successStyle := lipgloss.NewStyle().
+		Foreground(SuccessColor).
+		Padding(0, 1)
+	errorStyle := lipgloss.NewStyle().
+		Foreground(ErrorColor).
+		Padding(0, 1)
+	spinnerStyle := lipgloss.NewStyle().
+		Foreground(PrimaryColor).
+		Padding(0, 1)
+
+	// Push status
+	if c.pushState != AutoActionIdle {
+		switch c.pushState {
+		case AutoActionInProgress:
+			frame := spinnerChars[c.spinnerFrame%len(spinnerChars)]
+			lines.WriteString(spinnerStyle.Render(fmt.Sprintf("%s Pushing branch to remote...", frame)))
+		case AutoActionSuccess:
+			lines.WriteString(successStyle.Render("✓ Pushed branch to remote"))
+		case AutoActionError:
+			lines.WriteString(errorStyle.Render(fmt.Sprintf("✗ Push failed: %s", c.pushError)))
+		}
+		lines.WriteString("\n")
+	}
+
+	// PR status
+	if c.prState != AutoActionIdle {
+		switch c.prState {
+		case AutoActionInProgress:
+			frame := spinnerChars[c.spinnerFrame%len(spinnerChars)]
+			lines.WriteString(spinnerStyle.Render(fmt.Sprintf("%s Creating pull request...", frame)))
+		case AutoActionSuccess:
+			lines.WriteString(successStyle.Render(fmt.Sprintf("✓ Created PR: %s", c.prTitle)))
+			lines.WriteString("\n")
+			lines.WriteString(infoStyle.Render(fmt.Sprintf("  %s", c.prURL)))
+		case AutoActionError:
+			lines.WriteString(errorStyle.Render(fmt.Sprintf("✗ PR creation failed: %s", c.prError)))
+		}
+		lines.WriteString("\n")
+	}
+
+	_ = modalWidth
+	return lines.String()
 }
 
 // centerModal centers a modal string on the screen.

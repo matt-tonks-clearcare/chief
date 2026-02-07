@@ -147,6 +147,157 @@ func TestCompletionScreen_RenderFooterNoBranch(t *testing.T) {
 	}
 }
 
+func TestCompletionScreen_PushInProgress(t *testing.T) {
+	cs := NewCompletionScreen()
+	cs.Configure("auth", 8, 8, "chief/auth", 5, true)
+	cs.SetPushInProgress()
+	cs.SetSize(80, 40)
+
+	rendered := cs.Render()
+	if !strings.Contains(rendered, "Pushing branch to remote") {
+		t.Error("expected 'Pushing branch to remote' when push is in progress")
+	}
+	if cs.pushState != AutoActionInProgress {
+		t.Errorf("expected push state to be AutoActionInProgress, got %d", cs.pushState)
+	}
+	if !cs.IsAutoActionRunning() {
+		t.Error("expected IsAutoActionRunning() to be true when push is in progress")
+	}
+}
+
+func TestCompletionScreen_PushSuccess(t *testing.T) {
+	cs := NewCompletionScreen()
+	cs.Configure("auth", 8, 8, "chief/auth", 5, true)
+	cs.SetPushSuccess()
+	cs.SetSize(80, 40)
+
+	rendered := cs.Render()
+	if !strings.Contains(rendered, "Pushed branch to remote") {
+		t.Error("expected 'Pushed branch to remote' when push succeeded")
+	}
+	// Should not show the "configure" hint when auto-actions are active
+	if strings.Contains(rendered, "Configure auto-push") {
+		t.Error("expected no auto-push hint when push is active")
+	}
+}
+
+func TestCompletionScreen_PushError(t *testing.T) {
+	cs := NewCompletionScreen()
+	cs.Configure("auth", 8, 8, "chief/auth", 5, true)
+	cs.SetPushError("authentication failed")
+	cs.SetSize(80, 40)
+
+	rendered := cs.Render()
+	if !strings.Contains(rendered, "Push failed") {
+		t.Error("expected 'Push failed' when push errored")
+	}
+	if !strings.Contains(rendered, "authentication failed") {
+		t.Error("expected error message in render output")
+	}
+}
+
+func TestCompletionScreen_PRInProgress(t *testing.T) {
+	cs := NewCompletionScreen()
+	cs.Configure("auth", 8, 8, "chief/auth", 5, true)
+	cs.SetPushSuccess()
+	cs.SetPRInProgress()
+	cs.SetSize(80, 40)
+
+	rendered := cs.Render()
+	if !strings.Contains(rendered, "Creating pull request") {
+		t.Error("expected 'Creating pull request' when PR is in progress")
+	}
+	if !cs.IsAutoActionRunning() {
+		t.Error("expected IsAutoActionRunning() to be true when PR is in progress")
+	}
+}
+
+func TestCompletionScreen_PRSuccess(t *testing.T) {
+	cs := NewCompletionScreen()
+	cs.Configure("auth", 8, 8, "chief/auth", 5, true)
+	cs.SetPushSuccess()
+	cs.SetPRSuccess("https://github.com/org/repo/pull/42", "feat(auth): Authentication")
+	cs.SetSize(80, 40)
+
+	rendered := cs.Render()
+	if !strings.Contains(rendered, "Created PR") {
+		t.Error("expected 'Created PR' when PR succeeded")
+	}
+	if !strings.Contains(rendered, "feat(auth): Authentication") {
+		t.Error("expected PR title in render output")
+	}
+	if !strings.Contains(rendered, "https://github.com/org/repo/pull/42") {
+		t.Error("expected PR URL in render output")
+	}
+	if cs.IsAutoActionRunning() {
+		t.Error("expected IsAutoActionRunning() to be false when all actions complete")
+	}
+}
+
+func TestCompletionScreen_PRError(t *testing.T) {
+	cs := NewCompletionScreen()
+	cs.Configure("auth", 8, 8, "chief/auth", 5, true)
+	cs.SetPushSuccess()
+	cs.SetPRError("gh not found, Install: https://cli.github.com")
+	cs.SetSize(80, 40)
+
+	rendered := cs.Render()
+	if !strings.Contains(rendered, "PR creation failed") {
+		t.Error("expected 'PR creation failed' when PR errored")
+	}
+	if !strings.Contains(rendered, "gh not found") {
+		t.Error("expected error message in render output")
+	}
+}
+
+func TestCompletionScreen_ConfigureResetsAutoActions(t *testing.T) {
+	cs := NewCompletionScreen()
+	cs.Configure("auth", 8, 8, "chief/auth", 5, true)
+	cs.SetPushSuccess()
+	cs.SetPRSuccess("https://example.com", "title")
+
+	// Reconfigure should reset
+	cs.Configure("payments", 3, 5, "chief/payments", 2, false)
+
+	if cs.pushState != AutoActionIdle {
+		t.Error("expected push state to be reset after Configure")
+	}
+	if cs.prState != AutoActionIdle {
+		t.Error("expected PR state to be reset after Configure")
+	}
+	if cs.prURL != "" {
+		t.Error("expected prURL to be empty after Configure")
+	}
+}
+
+func TestCompletionScreen_Tick(t *testing.T) {
+	cs := NewCompletionScreen()
+	cs.Configure("auth", 8, 8, "chief/auth", 5, true)
+	cs.SetPushInProgress()
+
+	initial := cs.spinnerFrame
+	cs.Tick()
+	if cs.spinnerFrame != initial+1 {
+		t.Error("expected spinner frame to advance on Tick()")
+	}
+}
+
+func TestCompletionScreen_PushErrorNonBlocking(t *testing.T) {
+	cs := NewCompletionScreen()
+	cs.Configure("auth", 8, 8, "chief/auth", 5, true)
+	cs.SetPushError("network error")
+	cs.SetSize(80, 40)
+
+	rendered := cs.Render()
+	// Footer should still be present (keybindings remain usable)
+	if !strings.Contains(rendered, "m: merge") {
+		t.Error("expected footer keybindings to remain usable after push error")
+	}
+	if !strings.Contains(rendered, "q: quit") {
+		t.Error("expected 'q: quit' in footer after error")
+	}
+}
+
 func TestCenterModal(t *testing.T) {
 	modal := "test modal content"
 	result := centerModal(modal, 80, 40)

@@ -85,6 +85,17 @@ type cleanResultMsg struct {
 	clearBranch  bool
 }
 
+// autoActionResultMsg is sent when a post-completion auto-action (push/PR) completes.
+type autoActionResultMsg struct {
+	action  string // "push" or "pr"
+	err     error
+	prURL   string // Only set for successful PR creation
+	prTitle string // Only set for successful PR creation
+}
+
+// completionSpinnerTickMsg is sent to animate the completion screen spinner.
+type completionSpinnerTickMsg struct{}
+
 // worktreeStepResultMsg is sent when a worktree setup step completes.
 type worktreeStepResultMsg struct {
 	step WorktreeSpinnerStep
@@ -363,6 +374,16 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case cleanResultMsg:
 		return a.handleCleanResult(msg)
+
+	case autoActionResultMsg:
+		return a.handleAutoActionResult(msg)
+
+	case completionSpinnerTickMsg:
+		if a.viewMode == ViewCompletion && a.completionScreen.IsAutoActionRunning() {
+			a.completionScreen.Tick()
+			return a, tickCompletionSpinner()
+		}
+		return a, nil
 
 	case worktreeStepResultMsg:
 		return a.handleWorktreeStepResult(msg)
@@ -689,6 +710,8 @@ func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.C
 		a.logViewer.AddEvent(event)
 	}
 
+	var autoActionCmd tea.Cmd
+
 	switch event.Type {
 	case loop.EventIterationStart:
 		if isCurrentPRD {
@@ -719,7 +742,7 @@ func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.C
 		if isCurrentPRD {
 			a.state = StateComplete
 			a.lastActivity = "All stories complete!"
-			a.showCompletionScreen(prdName)
+			autoActionCmd = a.showCompletionScreen(prdName)
 		}
 		// Trigger completion callback for any PRD
 		if a.onCompletion != nil {
@@ -756,7 +779,10 @@ func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.C
 		a.tabBar.Refresh()
 	}
 
-	// Continue listening for manager events
+	// Continue listening for manager events, plus any auto-action commands
+	if autoActionCmd != nil {
+		return a, tea.Batch(a.listenForManagerEvents(), autoActionCmd)
+	}
 	return a, a.listenForManagerEvents()
 }
 
@@ -959,7 +985,8 @@ func (a *App) cleanupWorktreeSetup() {
 }
 
 // showCompletionScreen configures and shows the completion screen for a PRD.
-func (a *App) showCompletionScreen(prdName string) {
+// Returns a tea.Cmd if auto-actions need to be started, nil otherwise.
+func (a *App) showCompletionScreen(prdName string) tea.Cmd {
 	// Count completed stories
 	completed := 0
 	total := len(a.prd.UserStories)
@@ -987,6 +1014,87 @@ func (a *App) showCompletionScreen(prdName string) {
 	a.completionScreen.Configure(prdName, completed, total, branch, commitCount, hasAutoActions)
 	a.completionScreen.SetSize(a.width, a.height)
 	a.viewMode = ViewCompletion
+
+	// Trigger auto-push if configured and branch is set
+	if a.config != nil && a.config.OnComplete.Push && branch != "" {
+		a.completionScreen.SetPushInProgress()
+		return tea.Batch(
+			tickCompletionSpinner(),
+			a.runAutoPush(),
+		)
+	}
+
+	// If only PR is configured (no push), we can't create a PR without pushing first
+	// So PR-only without push is a no-op (push is required for PR)
+	return nil
+}
+
+// handleAutoActionResult handles the result of an auto-action (push or PR creation).
+func (a App) handleAutoActionResult(msg autoActionResultMsg) (tea.Model, tea.Cmd) {
+	switch msg.action {
+	case "push":
+		if msg.err != nil {
+			a.completionScreen.SetPushError(msg.err.Error())
+			return a, nil
+		}
+		a.completionScreen.SetPushSuccess()
+
+		// If PR creation is configured, start it now
+		if a.config != nil && a.config.OnComplete.CreatePR && a.completionScreen.HasBranch() {
+			a.completionScreen.SetPRInProgress()
+			return a, tea.Batch(
+				tickCompletionSpinner(),
+				a.runAutoCreatePR(),
+			)
+		}
+		return a, nil
+
+	case "pr":
+		if msg.err != nil {
+			a.completionScreen.SetPRError(msg.err.Error())
+			return a, nil
+		}
+		a.completionScreen.SetPRSuccess(msg.prURL, msg.prTitle)
+		return a, nil
+	}
+	return a, nil
+}
+
+// runAutoPush returns a tea.Cmd that pushes the branch in the background.
+func (a *App) runAutoPush() tea.Cmd {
+	branch := a.completionScreen.Branch()
+	// Use worktree dir if available, otherwise base dir
+	dir := a.baseDir
+	if instance := a.manager.GetInstance(a.completionScreen.PRDName()); instance != nil && instance.WorktreeDir != "" {
+		dir = instance.WorktreeDir
+	}
+	return func() tea.Msg {
+		err := git.PushBranch(dir, branch)
+		return autoActionResultMsg{action: "push", err: err}
+	}
+}
+
+// runAutoCreatePR returns a tea.Cmd that creates a PR in the background.
+func (a *App) runAutoCreatePR() tea.Cmd {
+	prdName := a.completionScreen.PRDName()
+	branch := a.completionScreen.Branch()
+	dir := a.baseDir
+
+	// Load the PRD to generate PR content
+	prdPath := filepath.Join(a.baseDir, ".chief", "prds", prdName, "prd.json")
+	return func() tea.Msg {
+		p, err := prd.LoadPRD(prdPath)
+		if err != nil {
+			return autoActionResultMsg{action: "pr", err: fmt.Errorf("failed to load PRD: %s", err.Error())}
+		}
+		title := git.PRTitleFromPRD(prdName, p)
+		body := git.PRBodyFromPRD(p)
+		url, err := git.CreatePR(dir, branch, title, body)
+		if err != nil {
+			return autoActionResultMsg{action: "pr", err: err}
+		}
+		return autoActionResultMsg{action: "pr", prURL: url, prTitle: title}
+	}
 }
 
 // renderCompletionView renders the completion screen.
@@ -1053,6 +1161,13 @@ func (a App) handleCompletionKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return a, nil
+}
+
+// tickCompletionSpinner returns a tea.Cmd that ticks the completion screen spinner.
+func tickCompletionSpinner() tea.Cmd {
+	return tea.Tick(100*time.Millisecond, func(time.Time) tea.Msg {
+		return completionSpinnerTickMsg{}
+	})
 }
 
 // tickWorktreeSpinner returns a tea.Cmd that ticks the spinner animation.
