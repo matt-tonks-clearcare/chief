@@ -585,7 +585,13 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				a.diffViewer.SetBaseDir(diffDir)
 				if instance := a.manager.GetInstance(a.prdName); instance != nil {
-					a.diffViewer.SetTicketPrefix(git.ExtractTicketFromBranch(instance.Branch))
+					branch := instance.Branch
+					if branch == "" {
+						if detected, err := git.GetCurrentBranch(diffDir); err == nil {
+							branch = detected
+						}
+					}
+					a.diffViewer.SetTicketPrefix(git.ExtractTicketFromBranch(branch))
 				}
 				a.diffViewer.SetSize(a.width-4, a.height-headerHeight-footerHeight-2)
 				// Load diff for the selected story's commit

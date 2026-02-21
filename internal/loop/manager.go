@@ -224,7 +224,22 @@ func (m *Manager) Start(name string) error {
 	}
 
 	// Extract ticket prefix from the branch name (e.g. CCS-1234 from feature/CCS-1234-foo).
-	ticketPrefix := git.ExtractTicketFromBranch(instance.Branch)
+	// If no branch is stored on the instance, detect the current branch from the working directory.
+	branch := instance.Branch
+	if branch == "" {
+		workDir := instance.WorktreeDir
+		if workDir == "" {
+			m.mu.RLock()
+			workDir = m.baseDir
+			m.mu.RUnlock()
+		}
+		if workDir != "" {
+			if detected, err := git.GetCurrentBranch(workDir); err == nil {
+				branch = detected
+			}
+		}
+	}
+	ticketPrefix := git.ExtractTicketFromBranch(branch)
 
 	// Create a new loop instance, using worktree-aware constructor if WorktreeDir is set.
 	// When no worktree is configured, run from the project root (baseDir) so that
