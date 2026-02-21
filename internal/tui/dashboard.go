@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/minicodemonkey/chief/internal/paths"
 	"github.com/minicodemonkey/chief/internal/prd"
 )
 
@@ -94,7 +95,7 @@ func (a *App) getWorktreeInfo() (branch, dir string) {
 	branch = instance.Branch
 	if instance.WorktreeDir != "" {
 		// Convert absolute worktree path to relative for display
-		dir = fmt.Sprintf(".chief/worktrees/%s/", a.prdName)
+		dir = paths.WorktreeDir(a.baseDir, a.prdName)
 	} else {
 		dir = "./ (current directory)"
 	}

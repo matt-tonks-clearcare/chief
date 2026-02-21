@@ -1,9 +1,9 @@
 package config
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
+
+	"github.com/minicodemonkey/chief/internal/paths"
 )
 
 func TestDefault(t *testing.T) {
@@ -20,6 +20,10 @@ func TestDefault(t *testing.T) {
 }
 
 func TestLoadNonExistent(t *testing.T) {
+	tmpHome := t.TempDir()
+	restore := paths.SetHomeDir(tmpHome)
+	defer restore()
+
 	cfg, err := Load(t.TempDir())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -30,6 +34,10 @@ func TestLoadNonExistent(t *testing.T) {
 }
 
 func TestSaveAndLoad(t *testing.T) {
+	tmpHome := t.TempDir()
+	restore := paths.SetHomeDir(tmpHome)
+	defer restore()
+
 	dir := t.TempDir()
 
 	cfg := &Config{
@@ -63,18 +71,19 @@ func TestSaveAndLoad(t *testing.T) {
 }
 
 func TestExists(t *testing.T) {
+	tmpHome := t.TempDir()
+	restore := paths.SetHomeDir(tmpHome)
+	defer restore()
+
 	dir := t.TempDir()
 
 	if Exists(dir) {
 		t.Error("expected Exists to return false for missing config")
 	}
 
-	// Create the config
-	chiefDir := filepath.Join(dir, ".chief")
-	if err := os.MkdirAll(chiefDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(chiefDir, "config.yaml"), []byte("{}"), 0o644); err != nil {
+	// Create the config using Save
+	cfg := Default()
+	if err := Save(dir, cfg); err != nil {
 		t.Fatal(err)
 	}
 

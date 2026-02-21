@@ -2,20 +2,23 @@ package cmd
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
+
+	"github.com/minicodemonkey/chief/internal/paths"
 )
 
 func TestRunStatusWithValidPRD(t *testing.T) {
+	tmpHome := t.TempDir()
+	restore := paths.SetHomeDir(tmpHome)
+	defer restore()
+
 	tmpDir := t.TempDir()
 
-	// Create a PRD directory with prd.json
-	prdDir := filepath.Join(tmpDir, ".chief", "prds", "test")
+	prdDir := paths.PRDDir(tmpDir, "test")
 	if err := os.MkdirAll(prdDir, 0755); err != nil {
 		t.Fatalf("Failed to create directory: %v", err)
 	}
 
-	// Create a test prd.json
 	prdJSON := `{
   "project": "Test Project",
   "description": "Test description",
@@ -25,8 +28,7 @@ func TestRunStatusWithValidPRD(t *testing.T) {
     {"id": "US-003", "title": "Story 3", "passes": false, "inProgress": true, "priority": 3}
   ]
 }`
-	prdPath := filepath.Join(prdDir, "prd.json")
-	if err := os.WriteFile(prdPath, []byte(prdJSON), 0644); err != nil {
+	if err := os.WriteFile(paths.PRDPath(tmpDir, "test"), []byte(prdJSON), 0644); err != nil {
 		t.Fatalf("Failed to create prd.json: %v", err)
 	}
 
@@ -35,7 +37,6 @@ func TestRunStatusWithValidPRD(t *testing.T) {
 		BaseDir: tmpDir,
 	}
 
-	// Should not return error
 	err := RunStatus(opts)
 	if err != nil {
 		t.Errorf("RunStatus() returned error: %v", err)
@@ -43,10 +44,13 @@ func TestRunStatusWithValidPRD(t *testing.T) {
 }
 
 func TestRunStatusWithDefaultName(t *testing.T) {
+	tmpHome := t.TempDir()
+	restore := paths.SetHomeDir(tmpHome)
+	defer restore()
+
 	tmpDir := t.TempDir()
 
-	// Create a PRD directory with prd.json using default name "main"
-	prdDir := filepath.Join(tmpDir, ".chief", "prds", "main")
+	prdDir := paths.PRDDir(tmpDir, "main")
 	if err := os.MkdirAll(prdDir, 0755); err != nil {
 		t.Fatalf("Failed to create directory: %v", err)
 	}
@@ -55,13 +59,12 @@ func TestRunStatusWithDefaultName(t *testing.T) {
   "project": "Main Project",
   "userStories": []
 }`
-	prdPath := filepath.Join(prdDir, "prd.json")
-	if err := os.WriteFile(prdPath, []byte(prdJSON), 0644); err != nil {
+	if err := os.WriteFile(paths.PRDPath(tmpDir, "main"), []byte(prdJSON), 0644); err != nil {
 		t.Fatalf("Failed to create prd.json: %v", err)
 	}
 
 	opts := StatusOptions{
-		Name:    "", // Empty should default to "main"
+		Name:    "",
 		BaseDir: tmpDir,
 	}
 
@@ -72,6 +75,10 @@ func TestRunStatusWithDefaultName(t *testing.T) {
 }
 
 func TestRunStatusWithMissingPRD(t *testing.T) {
+	tmpHome := t.TempDir()
+	restore := paths.SetHomeDir(tmpHome)
+	defer restore()
+
 	tmpDir := t.TempDir()
 
 	opts := StatusOptions{
@@ -86,13 +93,16 @@ func TestRunStatusWithMissingPRD(t *testing.T) {
 }
 
 func TestRunListWithNoPRDs(t *testing.T) {
+	tmpHome := t.TempDir()
+	restore := paths.SetHomeDir(tmpHome)
+	defer restore()
+
 	tmpDir := t.TempDir()
 
 	opts := ListOptions{
 		BaseDir: tmpDir,
 	}
 
-	// Should not return error, just print "No PRDs found"
 	err := RunList(opts)
 	if err != nil {
 		t.Errorf("RunList() returned error: %v", err)
@@ -100,9 +110,12 @@ func TestRunListWithNoPRDs(t *testing.T) {
 }
 
 func TestRunListWithPRDs(t *testing.T) {
+	tmpHome := t.TempDir()
+	restore := paths.SetHomeDir(tmpHome)
+	defer restore()
+
 	tmpDir := t.TempDir()
 
-	// Create multiple PRD directories
 	prds := []struct {
 		name    string
 		project string
@@ -124,14 +137,13 @@ func TestRunListWithPRDs(t *testing.T) {
 	}
 
 	for _, p := range prds {
-		prdDir := filepath.Join(tmpDir, ".chief", "prds", p.name)
+		prdDir := paths.PRDDir(tmpDir, p.name)
 		if err := os.MkdirAll(prdDir, 0755); err != nil {
 			t.Fatalf("Failed to create directory: %v", err)
 		}
 
 		prdJSON := `{"project": "` + p.project + `", "userStories": ` + p.stories + `}`
-		prdPath := filepath.Join(prdDir, "prd.json")
-		if err := os.WriteFile(prdPath, []byte(prdJSON), 0644); err != nil {
+		if err := os.WriteFile(paths.PRDPath(tmpDir, p.name), []byte(prdJSON), 0644); err != nil {
 			t.Fatalf("Failed to create prd.json: %v", err)
 		}
 	}
@@ -147,30 +159,31 @@ func TestRunListWithPRDs(t *testing.T) {
 }
 
 func TestRunListSkipsInvalidPRDs(t *testing.T) {
+	tmpHome := t.TempDir()
+	restore := paths.SetHomeDir(tmpHome)
+	defer restore()
+
 	tmpDir := t.TempDir()
 
-	// Create a valid PRD
-	validDir := filepath.Join(tmpDir, ".chief", "prds", "valid")
+	validDir := paths.PRDDir(tmpDir, "valid")
 	if err := os.MkdirAll(validDir, 0755); err != nil {
 		t.Fatalf("Failed to create directory: %v", err)
 	}
 	validJSON := `{"project": "Valid", "userStories": []}`
-	if err := os.WriteFile(filepath.Join(validDir, "prd.json"), []byte(validJSON), 0644); err != nil {
+	if err := os.WriteFile(paths.PRDPath(tmpDir, "valid"), []byte(validJSON), 0644); err != nil {
 		t.Fatalf("Failed to create prd.json: %v", err)
 	}
 
-	// Create an invalid PRD directory (no prd.json)
-	invalidDir := filepath.Join(tmpDir, ".chief", "prds", "invalid")
+	invalidDir := paths.PRDDir(tmpDir, "invalid")
 	if err := os.MkdirAll(invalidDir, 0755); err != nil {
 		t.Fatalf("Failed to create directory: %v", err)
 	}
 
-	// Create another invalid PRD (invalid JSON)
-	badJsonDir := filepath.Join(tmpDir, ".chief", "prds", "badjson")
+	badJsonDir := paths.PRDDir(tmpDir, "badjson")
 	if err := os.MkdirAll(badJsonDir, 0755); err != nil {
 		t.Fatalf("Failed to create directory: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(badJsonDir, "prd.json"), []byte("not json"), 0644); err != nil {
+	if err := os.WriteFile(paths.PRDPath(tmpDir, "badjson"), []byte("not json"), 0644); err != nil {
 		t.Fatalf("Failed to create prd.json: %v", err)
 	}
 
@@ -178,7 +191,6 @@ func TestRunListSkipsInvalidPRDs(t *testing.T) {
 		BaseDir: tmpDir,
 	}
 
-	// Should not return error, just skip invalid PRDs
 	err := RunList(opts)
 	if err != nil {
 		t.Errorf("RunList() returned error: %v", err)
@@ -186,9 +198,13 @@ func TestRunListSkipsInvalidPRDs(t *testing.T) {
 }
 
 func TestRunStatusAllComplete(t *testing.T) {
+	tmpHome := t.TempDir()
+	restore := paths.SetHomeDir(tmpHome)
+	defer restore()
+
 	tmpDir := t.TempDir()
 
-	prdDir := filepath.Join(tmpDir, ".chief", "prds", "done")
+	prdDir := paths.PRDDir(tmpDir, "done")
 	if err := os.MkdirAll(prdDir, 0755); err != nil {
 		t.Fatalf("Failed to create directory: %v", err)
 	}
@@ -200,8 +216,7 @@ func TestRunStatusAllComplete(t *testing.T) {
     {"id": "US-002", "title": "Story 2", "passes": true, "priority": 2}
   ]
 }`
-	prdPath := filepath.Join(prdDir, "prd.json")
-	if err := os.WriteFile(prdPath, []byte(prdJSON), 0644); err != nil {
+	if err := os.WriteFile(paths.PRDPath(tmpDir, "done"), []byte(prdJSON), 0644); err != nil {
 		t.Fatalf("Failed to create prd.json: %v", err)
 	}
 
@@ -217,16 +232,19 @@ func TestRunStatusAllComplete(t *testing.T) {
 }
 
 func TestRunStatusEmptyPRD(t *testing.T) {
+	tmpHome := t.TempDir()
+	restore := paths.SetHomeDir(tmpHome)
+	defer restore()
+
 	tmpDir := t.TempDir()
 
-	prdDir := filepath.Join(tmpDir, ".chief", "prds", "empty")
+	prdDir := paths.PRDDir(tmpDir, "empty")
 	if err := os.MkdirAll(prdDir, 0755); err != nil {
 		t.Fatalf("Failed to create directory: %v", err)
 	}
 
 	prdJSON := `{"project": "Empty Project", "userStories": []}`
-	prdPath := filepath.Join(prdDir, "prd.json")
-	if err := os.WriteFile(prdPath, []byte(prdJSON), 0644); err != nil {
+	if err := os.WriteFile(paths.PRDPath(tmpDir, "empty"), []byte(prdJSON), 0644); err != nil {
 		t.Fatalf("Failed to create prd.json: %v", err)
 	}
 

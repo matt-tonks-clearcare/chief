@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/minicodemonkey/chief/internal/paths"
 )
 
 // initTestRepo creates a temporary git repository with an initial commit and returns its path.
@@ -252,8 +254,12 @@ func TestIsWorktree(t *testing.T) {
 }
 
 func TestWorktreePathForPRD(t *testing.T) {
+	tmpHome := t.TempDir()
+	restore := paths.SetHomeDir(tmpHome)
+	defer restore()
+
 	result := WorktreePathForPRD("/home/user/project", "auth")
-	expected := filepath.Join("/home/user/project", ".chief", "worktrees", "auth")
+	expected := paths.WorktreeDir("/home/user/project", "auth")
 	if result != expected {
 		t.Errorf("WorktreePathForPRD() = %q, want %q", result, expected)
 	}
@@ -412,8 +418,12 @@ func TestDetectOrphanedWorktrees(t *testing.T) {
 	})
 
 	t.Run("detects worktree directories on disk", func(t *testing.T) {
+		tmpHome := t.TempDir()
+		restore := paths.SetHomeDir(tmpHome)
+		defer restore()
+
 		dir := t.TempDir()
-		worktreesDir := filepath.Join(dir, ".chief", "worktrees")
+		worktreesDir := paths.WorktreesDir(dir)
 
 		// Create some worktree directories
 		for _, name := range []string{"auth", "payments"} {
@@ -445,8 +455,12 @@ func TestDetectOrphanedWorktrees(t *testing.T) {
 	})
 
 	t.Run("ignores files in worktrees directory", func(t *testing.T) {
+		tmpHome := t.TempDir()
+		restore := paths.SetHomeDir(tmpHome)
+		defer restore()
+
 		dir := t.TempDir()
-		worktreesDir := filepath.Join(dir, ".chief", "worktrees")
+		worktreesDir := paths.WorktreesDir(dir)
 		if err := os.MkdirAll(worktreesDir, 0755); err != nil {
 			t.Fatalf("failed to create worktrees dir: %v", err)
 		}

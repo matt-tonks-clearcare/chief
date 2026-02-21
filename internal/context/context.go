@@ -1,5 +1,5 @@
 // Package context provides automatic context file loading for PRD generation.
-// It scans global (~/.claude/context/) and project-level (.chief/context/)
+// It scans global (~/.claude/context/) and project-level (~/.chief/projects/<project>/context/)
 // directories for .md files and returns their concatenated content.
 package context
 
@@ -8,10 +8,12 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/minicodemonkey/chief/internal/paths"
 )
 
 // LoadContextFiles scans global (~/.claude/context/) and project-level
-// (.chief/context/) directories for .md files, reads them, and returns
+// (~/.chief/projects/<project>/context/) directories for .md files, reads them, and returns
 // their concatenated content. Returns empty string if neither directory
 // exists or contains .md files.
 func LoadContextFiles(baseDir string) (string, error) {
@@ -39,8 +41,8 @@ func loadContextFilesWithHome(baseDir, homeDir string) (string, error) {
 		}
 	}
 
-	// Project-level directory: .chief/context/
-	projectDir := filepath.Join(baseDir, ".chief", "context")
+	// Project-level directory: ~/.chief/projects/<project>/context/
+	projectDir := paths.ContextDir(baseDir)
 	content, err := loadMarkdownFiles(projectDir)
 	if err != nil {
 		return "", err

@@ -4,10 +4,9 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/minicodemonkey/chief/internal/paths"
 	"gopkg.in/yaml.v3"
 )
-
-const configFile = ".chief/config.yaml"
 
 // Config holds project-level settings for Chief.
 type Config struct {
@@ -31,21 +30,16 @@ func Default() *Config {
 	return &Config{}
 }
 
-// configPath returns the full path to the config file.
-func configPath(baseDir string) string {
-	return filepath.Join(baseDir, configFile)
-}
-
 // Exists checks if the config file exists.
 func Exists(baseDir string) bool {
-	_, err := os.Stat(configPath(baseDir))
+	_, err := os.Stat(paths.ConfigPath(baseDir))
 	return err == nil
 }
 
-// Load reads the config from .chief/config.yaml.
+// Load reads the config from ~/.chief/projects/<project>/config.yaml.
 // Returns Default() when the file doesn't exist (no error).
 func Load(baseDir string) (*Config, error) {
-	path := configPath(baseDir)
+	path := paths.ConfigPath(baseDir)
 
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -63,9 +57,9 @@ func Load(baseDir string) (*Config, error) {
 	return cfg, nil
 }
 
-// Save writes the config to .chief/config.yaml.
+// Save writes the config to ~/.chief/projects/<project>/config.yaml.
 func Save(baseDir string, cfg *Config) error {
-	path := configPath(baseDir)
+	path := paths.ConfigPath(baseDir)
 
 	// Ensure directory exists
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

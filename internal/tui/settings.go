@@ -201,7 +201,7 @@ func (s *SettingsOverlay) Render() string {
 		Foreground(MutedColor)
 
 	title := titleStyle.Render("Settings")
-	path := pathStyle.Render(".chief/config.yaml")
+	path := pathStyle.Render("~/.chief/projects/.../config.yaml")
 	titleWidth := lipgloss.Width(title)
 	pathWidth := lipgloss.Width(path)
 	titlePadding := modalWidth - 4 - titleWidth - pathWidth

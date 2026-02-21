@@ -12,6 +12,7 @@ import (
 	"github.com/minicodemonkey/chief/internal/config"
 	"github.com/minicodemonkey/chief/internal/git"
 	"github.com/minicodemonkey/chief/internal/loop"
+	"github.com/minicodemonkey/chief/internal/paths"
 	"github.com/minicodemonkey/chief/internal/prd"
 )
 
@@ -276,14 +277,9 @@ func NewAppWithOptions(prdPath string, maxIter int) (*App, error) {
 		return nil, err
 	}
 
-	// Determine base directory for PRD picker
-	// If path contains .chief/prds/, go up to the project root (4 levels up from prd.json)
-	// .chief/prds/<name>/prd.json -> .chief/prds/<name> -> .chief/prds -> .chief -> project root
-	baseDir := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(prdPath))))
-	if !strings.Contains(prdPath, ".chief/prds/") {
-		// Fallback to current working directory
-		baseDir, _ = os.Getwd()
-	}
+	// Use current working directory as the project base directory
+	// PRD files are stored in ~/.chief/projects/<project>/ so we can't derive baseDir from the path
+	baseDir, _ := os.Getwd()
 
 	// Load project config
 	cfg, err := config.Load(baseDir)
@@ -727,7 +723,7 @@ func (a App) startLoop() (tea.Model, tea.Cmd) {
 // startLoopForPRD starts the agent loop for a specific PRD.
 func (a App) startLoopForPRD(prdName string) (tea.Model, tea.Cmd) {
 	// Get the PRD directory
-	prdDir := filepath.Join(a.baseDir, ".chief", "prds", prdName)
+	prdDir := paths.PRDDir(a.baseDir, prdName)
 
 	if !git.IsGitRepo(a.baseDir) {
 		return a.doStartLoop(prdName, prdDir)
@@ -738,8 +734,8 @@ func (a App) startLoopForPRD(prdName string) (tea.Model, tea.Cmd) {
 		return a.doStartLoop(prdName, prdDir)
 	}
 
-	worktreePath := git.WorktreePathForPRD(a.baseDir, prdName)
-	relWorktreePath := fmt.Sprintf(".chief/worktrees/%s/", prdName)
+	worktreePath := paths.WorktreeDir(a.baseDir, prdName)
+	relWorktreePath := paths.WorktreeDir(a.baseDir, prdName)
 
 	// Determine dialog context
 	isProtected := git.IsProtectedBranch(branch)
@@ -1140,7 +1136,7 @@ func (a App) handleBranchWarningKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "enter":
 		prdName := a.pendingStartPRD
-		prdDir := filepath.Join(a.baseDir, ".chief", "prds", prdName)
+		prdDir := paths.PRDDir(a.baseDir, prdName)
 		a.pendingStartPRD = ""
 		a.pendingWorktreePath = ""
 		a.viewMode = ViewDashboard
@@ -1148,8 +1144,8 @@ func (a App) handleBranchWarningKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch a.branchWarning.GetSelectedOption() {
 		case BranchOptionCreateWorktree:
 			branchName := a.branchWarning.GetSuggestedBranch()
-			worktreePath := git.WorktreePathForPRD(a.baseDir, prdName)
-			relWorktreePath := fmt.Sprintf(".chief/worktrees/%s/", prdName)
+			worktreePath := paths.WorktreeDir(a.baseDir, prdName)
+			relWorktreePath := paths.WorktreeDir(a.baseDir, prdName)
 
 			// Detect default branch for display
 			defaultBranch := "main"
@@ -1377,7 +1373,7 @@ func (a App) handleBackgroundAutoAction(msg backgroundAutoActionResultMsg) (tea.
 			prdName := msg.prdName
 			branch := instance.Branch
 			dir := a.baseDir
-			prdPath := filepath.Join(a.baseDir, ".chief", "prds", prdName, "prd.json")
+			prdPath := paths.PRDPath(a.baseDir, prdName)
 			return a, func() tea.Msg {
 				p, err := prd.LoadPRD(prdPath)
 				if err != nil {
@@ -1415,7 +1411,7 @@ func (a *App) runAutoCreatePR() tea.Cmd {
 	dir := a.baseDir
 
 	// Load the PRD to generate PR content
-	prdPath := filepath.Join(a.baseDir, ".chief", "prds", prdName, "prd.json")
+	prdPath := paths.PRDPath(a.baseDir, prdName)
 	return func() tea.Msg {
 		p, err := prd.LoadPRD(prdPath)
 		if err != nil {
@@ -1693,7 +1689,7 @@ func (a App) finishWorktreeSetup() (tea.Model, tea.Cmd) {
 	prdName := a.pendingStartPRD
 	worktreePath := a.pendingWorktreePath
 	branchName := a.worktreeSpinner.branchName
-	prdDir := filepath.Join(a.baseDir, ".chief", "prds", prdName)
+	prdDir := paths.PRDDir(a.baseDir, prdName)
 
 	// Register or update with worktree info
 	prdPath := filepath.Join(prdDir, "prd.json")

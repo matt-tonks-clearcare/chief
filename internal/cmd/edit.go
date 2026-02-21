@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/minicodemonkey/chief/embed"
+	"github.com/minicodemonkey/chief/internal/paths"
 )
 
 // EditOptions contains configuration for the edit command.
@@ -36,7 +37,7 @@ func RunEdit(opts EditOptions) error {
 	}
 
 	// Build the PRD directory path
-	prdDir := filepath.Join(opts.BaseDir, ".chief", "prds", opts.Name)
+	prdDir := paths.PRDDir(opts.BaseDir, opts.Name)
 	prdMdPath := filepath.Join(prdDir, "prd.md")
 
 	// Check if prd.md exists

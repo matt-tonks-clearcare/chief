@@ -259,7 +259,7 @@ func TestSettingsOverlay_Render(t *testing.T) {
 	if !strings.Contains(rendered, "Settings") {
 		t.Error("expected 'Settings' in header")
 	}
-	if !strings.Contains(rendered, ".chief/config.yaml") {
+	if !strings.Contains(rendered, "config.yaml") {
 		t.Error("expected config path in header")
 	}
 

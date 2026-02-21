@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/minicodemonkey/chief/internal/paths"
 	"github.com/minicodemonkey/chief/internal/prd"
 )
 
@@ -30,7 +31,7 @@ func RunStatus(opts StatusOptions) error {
 	}
 
 	// Build PRD path
-	prdPath := filepath.Join(opts.BaseDir, ".chief", "prds", opts.Name, "prd.json")
+	prdPath := paths.PRDPath(opts.BaseDir, opts.Name)
 
 	// Load PRD
 	p, err := prd.LoadPRD(prdPath)
@@ -104,8 +105,8 @@ func RunList(opts ListOptions) error {
 		opts.BaseDir = cwd
 	}
 
-	// Find all PRDs in .chief/prds/
-	prdsDir := filepath.Join(opts.BaseDir, ".chief", "prds")
+	// Find all PRDs
+	prdsDir := paths.PRDsDir(opts.BaseDir)
 	entries, err := os.ReadDir(prdsDir)
 	if err != nil {
 		if os.IsNotExist(err) {

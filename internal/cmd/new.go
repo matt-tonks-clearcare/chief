@@ -12,6 +12,7 @@ import (
 
 	"github.com/minicodemonkey/chief/embed"
 	chiefcontext "github.com/minicodemonkey/chief/internal/context"
+	"github.com/minicodemonkey/chief/internal/paths"
 	"github.com/minicodemonkey/chief/internal/prd"
 )
 
@@ -41,8 +42,8 @@ func RunNew(opts NewOptions) error {
 		return fmt.Errorf("invalid PRD name %q: must contain only letters, numbers, hyphens, and underscores", opts.Name)
 	}
 
-	// Create directory structure: .chief/prds/<name>/
-	prdDir := filepath.Join(opts.BaseDir, ".chief", "prds", opts.Name)
+	// Create directory structure
+	prdDir := paths.PRDDir(opts.BaseDir, opts.Name)
 	if err := os.MkdirAll(prdDir, 0755); err != nil {
 		return fmt.Errorf("failed to create PRD directory: %w", err)
 	}

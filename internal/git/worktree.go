@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/minicodemonkey/chief/internal/paths"
 )
 
 // Worktree represents a git worktree entry.
@@ -182,7 +184,7 @@ func IsWorktree(path string) bool {
 
 // WorktreePathForPRD returns the worktree path for a given PRD name.
 func WorktreePathForPRD(baseDir, prdName string) string {
-	return filepath.Join(baseDir, ".chief", "worktrees", prdName)
+	return paths.WorktreeDir(baseDir, prdName)
 }
 
 // PruneWorktrees runs `git worktree prune` to clean up stale worktree tracking.
@@ -195,11 +197,11 @@ func PruneWorktrees(repoDir string) error {
 	return nil
 }
 
-// DetectOrphanedWorktrees scans .chief/worktrees/ and returns a map of PRD name -> absolute worktree path
+// DetectOrphanedWorktrees scans the worktrees directory and returns a map of PRD name -> absolute worktree path
 // for worktrees that exist on disk. The caller is responsible for determining which are orphaned
 // (i.e., have no corresponding registered/running PRD).
 func DetectOrphanedWorktrees(baseDir string) map[string]string {
-	worktreesDir := filepath.Join(baseDir, ".chief", "worktrees")
+	worktreesDir := paths.WorktreesDir(baseDir)
 	entries, err := os.ReadDir(worktreesDir)
 	if err != nil {
 		return nil

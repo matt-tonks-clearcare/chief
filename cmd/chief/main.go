@@ -10,7 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/minicodemonkey/chief/internal/cmd"
 	"github.com/minicodemonkey/chief/internal/config"
-	"github.com/minicodemonkey/chief/internal/git"
+	"github.com/minicodemonkey/chief/internal/paths"
 	"github.com/minicodemonkey/chief/internal/prd"
 	"github.com/minicodemonkey/chief/internal/tui"
 )
@@ -78,10 +78,20 @@ func main() {
 	runTUIWithOptions(opts)
 }
 
-// findAvailablePRD looks for any available PRD in .chief/prds/
+// cwd returns the current working directory or panics.
+func cwd() string {
+	d, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to get current directory: %v\n", err)
+		os.Exit(1)
+	}
+	return d
+}
+
+// findAvailablePRD looks for any available PRD in ~/.chief/projects/<project>/prds/
 // Returns the path to the first PRD found, or empty string if none exist.
 func findAvailablePRD() string {
-	prdsDir := ".chief/prds"
+	prdsDir := paths.PRDsDir(cwd())
 	entries, err := os.ReadDir(prdsDir)
 	if err != nil {
 		return ""
@@ -98,9 +108,9 @@ func findAvailablePRD() string {
 	return ""
 }
 
-// listAvailablePRDs returns all PRD names in .chief/prds/
+// listAvailablePRDs returns all PRD names in ~/.chief/projects/<project>/prds/
 func listAvailablePRDs() []string {
-	prdsDir := ".chief/prds"
+	prdsDir := paths.PRDsDir(cwd())
 	entries, err := os.ReadDir(prdsDir)
 	if err != nil {
 		return nil
@@ -200,7 +210,7 @@ func parseTUIFlags() *TUIOptions {
 				opts.PRDPath = arg
 			} else {
 				// Treat as PRD name
-				opts.PRDPath = fmt.Sprintf(".chief/prds/%s/prd.json", arg)
+				opts.PRDPath = paths.PRDPath(cwd(), arg)
 			}
 		}
 	}
@@ -288,7 +298,7 @@ func runTUIWithOptions(opts *TUIOptions) {
 	// If no PRD specified, try to find one
 	if prdPath == "" {
 		// Try "main" first
-		mainPath := ".chief/prds/main/prd.json"
+		mainPath := paths.PRDPath(cwd(), "main")
 		if _, err := os.Stat(mainPath); err == nil {
 			prdPath = mainPath
 		} else {
@@ -298,11 +308,10 @@ func runTUIWithOptions(opts *TUIOptions) {
 
 		// If still no PRD found, run first-time setup
 		if prdPath == "" {
-			cwd, _ := os.Getwd()
-			showGitignore := git.IsGitRepo(cwd) && !git.IsChiefIgnored(cwd)
+			dir := cwd()
 
-			// Run the first-time setup TUI
-			result, err := tui.RunFirstTimeSetup(cwd, showGitignore)
+			// Run the first-time setup TUI (no gitignore needed since data is in ~/.chief)
+			result, err := tui.RunFirstTimeSetup(dir, false)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
@@ -316,7 +325,7 @@ func runTUIWithOptions(opts *TUIOptions) {
 			cfg := config.Default()
 			cfg.OnComplete.Push = result.PushOnComplete
 			cfg.OnComplete.CreatePR = result.CreatePROnComplete
-			if err := config.Save(cwd, cfg); err != nil {
+			if err := config.Save(dir, cfg); err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: failed to save config: %v\n", err)
 			}
 
@@ -330,7 +339,7 @@ func runTUIWithOptions(opts *TUIOptions) {
 			}
 
 			// Restart TUI with the new PRD
-			opts.PRDPath = fmt.Sprintf(".chief/prds/%s/prd.json", result.PRDName)
+			opts.PRDPath = paths.PRDPath(dir, result.PRDName)
 			runTUIWithOptions(opts)
 			return
 		}
@@ -399,6 +408,7 @@ func runTUIWithOptions(opts *TUIOptions) {
 
 	// Check for post-exit actions
 	if finalApp, ok := model.(tui.App); ok {
+		dir := cwd()
 		switch finalApp.PostExitAction {
 		case tui.PostExitInit:
 			// Run new command then restart TUI
@@ -410,7 +420,7 @@ func runTUIWithOptions(opts *TUIOptions) {
 				os.Exit(1)
 			}
 			// Restart TUI with the new PRD
-			opts.PRDPath = fmt.Sprintf(".chief/prds/%s/prd.json", finalApp.PostExitPRD)
+			opts.PRDPath = paths.PRDPath(dir, finalApp.PostExitPRD)
 			runTUIWithOptions(opts)
 
 		case tui.PostExitEdit:
@@ -425,7 +435,7 @@ func runTUIWithOptions(opts *TUIOptions) {
 				os.Exit(1)
 			}
 			// Restart TUI with the edited PRD
-			opts.PRDPath = fmt.Sprintf(".chief/prds/%s/prd.json", finalApp.PostExitPRD)
+			opts.PRDPath = paths.PRDPath(dir, finalApp.PostExitPRD)
 			runTUIWithOptions(opts)
 		}
 	}
@@ -460,23 +470,26 @@ Edit Options:
   --force                   Auto-overwrite on conversion conflicts
 
 Positional Arguments:
-  <name>                    PRD name (loads .chief/prds/<name>/prd.json)
+  <name>                    PRD name (loads from ~/.chief/projects/<project>/prds/<name>/prd.json)
   <path/to/prd.json>        Direct path to a prd.json file
 
+Data Storage:
+  All PRDs, config, and worktrees are stored in ~/.chief/projects/<project-dir>/
+
 Examples:
-  chief                     Launch TUI with default PRD (.chief/prds/main/)
-  chief auth                Launch TUI with named PRD (.chief/prds/auth/)
+  chief                     Launch TUI with default PRD
+  chief auth                Launch TUI with named PRD
   chief ./my-prd.json       Launch TUI with specific PRD file
   chief -n 20               Launch with 20 max iterations
   chief --max-iterations=5 auth
                             Launch auth PRD with 5 max iterations
   chief --verbose           Launch with raw Claude output visible
-  chief new                 Create PRD in .chief/prds/main/
-  chief new auth            Create PRD in .chief/prds/auth/
+  chief new                 Create a new PRD named "main"
+  chief new auth            Create a new PRD named "auth"
   chief new auth "JWT authentication for REST API"
                             Create PRD with context hint
-  chief edit                Edit PRD in .chief/prds/main/
-  chief edit auth           Edit PRD in .chief/prds/auth/
+  chief edit                Edit the "main" PRD
+  chief edit auth           Edit the "auth" PRD
   chief edit auth --merge   Edit and auto-merge progress
   chief status              Show progress for default PRD
   chief status auth         Show progress for auth PRD

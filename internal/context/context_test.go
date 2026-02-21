@@ -5,11 +5,17 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/minicodemonkey/chief/internal/paths"
 )
 
 func TestLoadContextFiles_NoDirsExist(t *testing.T) {
+	tmpHome := t.TempDir()
+	restore := paths.SetHomeDir(tmpHome)
+	defer restore()
+
 	tmpDir := t.TempDir()
-	result, err := loadContextFilesWithHome(tmpDir, tmpDir)
+	result, err := loadContextFilesWithHome(tmpDir, tmpHome)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -20,8 +26,11 @@ func TestLoadContextFiles_NoDirsExist(t *testing.T) {
 
 func TestLoadContextFiles_ProjectDirOnly(t *testing.T) {
 	tmpHome := t.TempDir()
+	restore := paths.SetHomeDir(tmpHome)
+	defer restore()
+
 	tmpProject := t.TempDir()
-	contextDir := filepath.Join(tmpProject, ".chief", "context")
+	contextDir := paths.ContextDir(tmpProject)
 	if err := os.MkdirAll(contextDir, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -40,6 +49,9 @@ func TestLoadContextFiles_ProjectDirOnly(t *testing.T) {
 
 func TestLoadContextFiles_GlobalDirOnly(t *testing.T) {
 	tmpHome := t.TempDir()
+	restore := paths.SetHomeDir(tmpHome)
+	defer restore()
+
 	tmpProject := t.TempDir()
 	globalDir := filepath.Join(tmpHome, ".claude", "context")
 	if err := os.MkdirAll(globalDir, 0755); err != nil {
@@ -60,13 +72,16 @@ func TestLoadContextFiles_GlobalDirOnly(t *testing.T) {
 
 func TestLoadContextFiles_BothDirs(t *testing.T) {
 	tmpHome := t.TempDir()
+	restore := paths.SetHomeDir(tmpHome)
+	defer restore()
+
 	tmpProject := t.TempDir()
 
 	globalDir := filepath.Join(tmpHome, ".claude", "context")
 	os.MkdirAll(globalDir, 0755)
 	os.WriteFile(filepath.Join(globalDir, "global.md"), []byte("Global"), 0644)
 
-	projectDir := filepath.Join(tmpProject, ".chief", "context")
+	projectDir := paths.ContextDir(tmpProject)
 	os.MkdirAll(projectDir, 0755)
 	os.WriteFile(filepath.Join(projectDir, "project.md"), []byte("Project"), 0644)
 
@@ -80,7 +95,6 @@ func TestLoadContextFiles_BothDirs(t *testing.T) {
 	if !strings.Contains(result, "Project") {
 		t.Error("expected result to contain 'Project'")
 	}
-	// Global should come before Project
 	globalIdx := strings.Index(result, "Global")
 	projectIdx := strings.Index(result, "Project")
 	if globalIdx > projectIdx {
@@ -89,8 +103,12 @@ func TestLoadContextFiles_BothDirs(t *testing.T) {
 }
 
 func TestLoadContextFiles_EmptyHomeDir(t *testing.T) {
+	tmpHome := t.TempDir()
+	restore := paths.SetHomeDir(tmpHome)
+	defer restore()
+
 	tmpProject := t.TempDir()
-	contextDir := filepath.Join(tmpProject, ".chief", "context")
+	contextDir := paths.ContextDir(tmpProject)
 	os.MkdirAll(contextDir, 0755)
 	os.WriteFile(filepath.Join(contextDir, "info.md"), []byte("Info"), 0644)
 

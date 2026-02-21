@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/minicodemonkey/chief/internal/git"
 	"github.com/minicodemonkey/chief/internal/loop"
+	"github.com/minicodemonkey/chief/internal/paths"
 	"github.com/minicodemonkey/chief/internal/prd"
 )
 
@@ -99,7 +100,7 @@ func (p *PRDPicker) SetManager(manager *loop.Manager) {
 func (p *PRDPicker) Refresh() {
 	p.entries = make([]PRDEntry, 0)
 
-	prdsDir := filepath.Join(p.basePath, ".chief", "prds")
+	prdsDir := paths.PRDsDir(p.basePath)
 
 	// Read the prds directory
 	entries, err := os.ReadDir(prdsDir)
@@ -124,8 +125,8 @@ func (p *PRDPicker) Refresh() {
 		addedNames[name] = true
 	}
 
-	// Also check if there's a "main" PRD directly in .chief/ (legacy location)
-	mainPrdPath := filepath.Join(p.basePath, ".chief", "prd.json")
+	// Also check if there's a "main" PRD at legacy location
+	mainPrdPath := filepath.Join(paths.ChiefDir(p.basePath), "prd.json")
 	if _, err := os.Stat(mainPrdPath); err == nil && !addedNames["main"] {
 		prdEntry := p.loadPRDEntry("main", mainPrdPath)
 		p.entries = append(p.entries, prdEntry)
@@ -167,7 +168,7 @@ func (p *PRDPicker) Refresh() {
 			if !found {
 				p.entries = append(p.entries, PRDEntry{
 					Name:        prdName,
-					Path:        filepath.Join(p.basePath, ".chief", "prds", prdName, "prd.json"),
+					Path:        paths.PRDPath(p.basePath, prdName),
 					LoopState:   loop.LoopStateReady,
 					WorktreeDir: absPath,
 					Orphaned:    true,

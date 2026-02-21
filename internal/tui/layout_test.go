@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/minicodemonkey/chief/internal/loop"
+	"github.com/minicodemonkey/chief/internal/paths"
 )
 
 func TestIsNarrowMode(t *testing.T) {
@@ -217,16 +218,21 @@ func TestGetWorktreeInfo_NoBranch(t *testing.T) {
 }
 
 func TestGetWorktreeInfo_WithBranch(t *testing.T) {
+	tmpHome := t.TempDir()
+	restore := paths.SetHomeDir(tmpHome)
+	defer restore()
+
 	mgr := loop.NewManager(10)
 	mgr.RegisterWithWorktree("auth", "/tmp/prd.json", "/tmp/.chief/worktrees/auth", "chief/auth")
 
-	app := &App{prdName: "auth", manager: mgr}
+	app := &App{prdName: "auth", manager: mgr, baseDir: "/tmp/project"}
 	branch, dir := app.getWorktreeInfo()
 	if branch != "chief/auth" {
 		t.Errorf("branch = %q, want %q", branch, "chief/auth")
 	}
-	if dir != ".chief/worktrees/auth/" {
-		t.Errorf("dir = %q, want %q", dir, ".chief/worktrees/auth/")
+	expected := paths.WorktreeDir("/tmp/project", "auth")
+	if dir != expected {
+		t.Errorf("dir = %q, want %q", dir, expected)
 	}
 }
 
@@ -298,10 +304,14 @@ func TestRenderWorktreeInfoLine_NoBranch(t *testing.T) {
 }
 
 func TestRenderWorktreeInfoLine_WithBranch(t *testing.T) {
+	tmpHome := t.TempDir()
+	restore := paths.SetHomeDir(tmpHome)
+	defer restore()
+
 	mgr := loop.NewManager(10)
 	mgr.RegisterWithWorktree("auth", "/tmp/prd.json", "/tmp/.chief/worktrees/auth", "chief/auth")
 
-	app := &App{prdName: "auth", manager: mgr}
+	app := &App{prdName: "auth", manager: mgr, baseDir: "/tmp/project"}
 	got := app.renderWorktreeInfoLine()
 	if got == "" {
 		t.Error("renderWorktreeInfoLine() should not be empty with branch set")
@@ -315,7 +325,7 @@ func TestRenderWorktreeInfoLine_WithBranch(t *testing.T) {
 	if !strings.Contains(got, "dir:") {
 		t.Errorf("renderWorktreeInfoLine() should contain 'dir:', got %q", got)
 	}
-	if !strings.Contains(got, ".chief/worktrees/auth/") {
+	if !strings.Contains(got, "worktrees/auth") {
 		t.Errorf("renderWorktreeInfoLine() should contain worktree path, got %q", got)
 	}
 }

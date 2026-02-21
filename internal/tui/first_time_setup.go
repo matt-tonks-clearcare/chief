@@ -517,7 +517,7 @@ func (f FirstTimeSetup) renderPRDNameStep() string {
 	// Hint
 	content.WriteString("\n")
 	hintStyle := lipgloss.NewStyle().Foreground(MutedColor)
-	content.WriteString(hintStyle.Render("PRD will be created at: .chief/prds/" + f.prdName + "/"))
+	content.WriteString(hintStyle.Render("PRD will be created at: ~/.chief/projects/.../" + f.prdName + "/"))
 
 	// Footer
 	content.WriteString("\n\n")

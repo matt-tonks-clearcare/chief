@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/minicodemonkey/chief/internal/loop"
+	"github.com/minicodemonkey/chief/internal/paths"
 	"github.com/minicodemonkey/chief/internal/prd"
 )
 
@@ -49,7 +50,7 @@ func NewTabBar(baseDir, currentPRD string, manager *loop.Manager) *TabBar {
 func (t *TabBar) Refresh() {
 	t.entries = make([]TabEntry, 0)
 
-	prdsDir := filepath.Join(t.baseDir, ".chief", "prds")
+	prdsDir := paths.PRDsDir(t.baseDir)
 
 	// Read the prds directory
 	dirEntries, err := os.ReadDir(prdsDir)
@@ -73,8 +74,8 @@ func (t *TabBar) Refresh() {
 		addedNames[name] = true
 	}
 
-	// Also check if there's a "main" PRD directly in .chief/ (legacy location)
-	mainPrdPath := filepath.Join(t.baseDir, ".chief", "prd.json")
+	// Also check if there's a "main" PRD at legacy location
+	mainPrdPath := filepath.Join(paths.ChiefDir(t.baseDir), "prd.json")
 	if _, err := os.Stat(mainPrdPath); err == nil && !addedNames["main"] {
 		tabEntry := t.loadTabEntry("main", mainPrdPath)
 		t.entries = append(t.entries, tabEntry)
