@@ -10,7 +10,7 @@ MAIN_PKG := ./cmd/chief
 # Go build flags
 LDFLAGS := -ldflags "-X main.Version=$(VERSION)"
 
-.PHONY: all build install test lint clean release snapshot help
+.PHONY: all build install test lint clean help
 
 all: build
 
@@ -52,16 +52,6 @@ tidy:
 clean:
 	rm -rf $(BIN_DIR)
 	rm -rf $(BUILD_DIR)
-	rm -rf dist/
-
-## snapshot: Build snapshot release with goreleaser
-snapshot:
-	goreleaser release --snapshot --clean
-
-## release: Build release (requires GITHUB_TOKEN)
-release:
-	goreleaser release --clean
-
 ## run: Build and run the TUI
 run: build
 	$(BIN_DIR)/$(BINARY_NAME)

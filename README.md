@@ -6,18 +6,6 @@ Build big projects with Claude. Chief breaks your work into tasks and runs Claud
 
 ![Chief TUI](https://minicodemonkey.github.io/chief/images/tui-screenshot.png)
 
-## Install
-
-```bash
-brew install minicodemonkey/chief/chief
-```
-
-Or via install script:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/MiniCodeMonkey/chief/refs/heads/main/install.sh | sh
-```
-
 ## Usage
 
 ```bash
@@ -27,14 +15,6 @@ chief new
 # Launch the TUI and press 's' to start
 chief
 ```
-
-Chief runs Claude in a [Ralph Wiggum loop](https://ghuntley.com/ralph/): each iteration starts with a fresh context window, but progress is persisted between runs. This lets Claude work through large projects without hitting context limits.
-
-## How It Works
-
-1. **Describe your project** as a series of tasks
-2. **Chief runs Claude** in a loop, one task at a time
-3. **One commit per task** — clean git history, easy to review
 
 See the [documentation](https://minicodemonkey.github.io/chief/concepts/how-it-works) for details.
 
