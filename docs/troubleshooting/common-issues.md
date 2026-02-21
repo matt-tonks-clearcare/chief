@@ -71,7 +71,7 @@ Chief automatically runs Claude with permission prompts disabled for autonomous 
    tail -f .chief/prds/your-prd/claude.log
    ```
 
-2. Simplify the current story's acceptance criteria
+2. Simplify the current story's steps
 
 3. Add context to `prd.md` about the codebase
 
@@ -98,7 +98,7 @@ Chief automatically runs Claude with permission prompts disabled for autonomous 
 2. Or investigate why it's taking so many iterations:
    - Story too complex? Split it
    - Stuck in a loop? Check `claude.log`
-   - Unclear acceptance criteria? Clarify them
+   - Unclear steps? Clarify them
 
 ## "No PRD Found"
 

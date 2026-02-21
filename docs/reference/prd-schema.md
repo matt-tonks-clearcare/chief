@@ -23,7 +23,7 @@ interface UserStory {
   id: string;                    // Unique identifier
   title: string;                 // Short title
   description: string;           // Full description
-  acceptanceCriteria: string[];  // What must be true
+  steps: string[];  // What must be true
   priority: number;              // Lower = higher priority
   passes: boolean;               // Is this complete?
   inProgress: boolean;           // Being worked on?
@@ -41,7 +41,7 @@ interface UserStory {
       "id": "US-001",
       "title": "User Registration",
       "description": "As a new user, I want to register an account so that I can access the application.",
-      "acceptanceCriteria": [
+      "steps": [
         "Registration form with email and password fields",
         "Email format validation",
         "Password minimum 8 characters",
@@ -56,7 +56,7 @@ interface UserStory {
       "id": "US-002",
       "title": "User Login",
       "description": "As a registered user, I want to log in so that I can access my account.",
-      "acceptanceCriteria": [
+      "steps": [
         "Login form with email and password fields",
         "Error message for invalid credentials",
         "Remember me checkbox",
@@ -94,7 +94,7 @@ Full description of the story. User story format recommended but not required.
 
 **Format:** `"As a [user], I want [feature] so that [benefit]."`
 
-### acceptanceCriteria
+### steps
 
 Array of strings, each describing a requirement. Claude uses these to know when the story is complete.
 

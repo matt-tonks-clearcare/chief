@@ -76,9 +76,9 @@ func NewLoopWithWorkDir(prdPath, workDir string, prompt string, maxIter int) *Lo
 }
 
 // NewLoopWithEmbeddedPrompt creates a new Loop instance using the embedded agent prompt.
-// The PRD path placeholder in the prompt is automatically substituted.
-func NewLoopWithEmbeddedPrompt(prdPath string, maxIter int) *Loop {
-	prompt := embed.GetPrompt(prdPath)
+// The PRD path and ticket prefix placeholders in the prompt are automatically substituted.
+func NewLoopWithEmbeddedPrompt(prdPath, ticketPrefix string, maxIter int) *Loop {
+	prompt := embed.GetPrompt(prdPath, ticketPrefix)
 	return NewLoop(prdPath, prompt, maxIter)
 }
 

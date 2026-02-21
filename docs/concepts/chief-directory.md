@@ -75,7 +75,7 @@ Key fields:
 | `userStories[].id` | string | Story identifier (e.g., `US-001`) |
 | `userStories[].title` | string | Short story title |
 | `userStories[].description` | string | User story in "As a... I want... so that..." format |
-| `userStories[].acceptanceCriteria` | array | List of criteria that must be met |
+| `userStories[].steps` | array | List of steps that must be completed |
 | `userStories[].priority` | number | Execution order (lower = higher priority) |
 | `userStories[].passes` | boolean | Whether the story is complete |
 | `userStories[].inProgress` | boolean | Whether Chief is currently working on this story |

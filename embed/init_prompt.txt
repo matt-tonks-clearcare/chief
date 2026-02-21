@@ -65,17 +65,17 @@ Specific, measurable objectives (bullet list).
 Each story needs:
 - **Title:** Short descriptive name
 - **Description:** "As a [user], I want [feature] so that [benefit]"
-- **Acceptance Criteria:** Verifiable checklist of what "done" means
+- **Steps:** Verifiable checklist of what "done" means
 
 Each story should be small enough to implement in one focused coding session.
 
 **Format:**
 ```markdown
-### US-001: [Title]
+### CCS-001: [Title]
 **Priority:** 1
 **Description:** As a [user], I want [feature] so that [benefit].
 
-**Acceptance Criteria:**
+**Steps:**
 - [ ] Specific verifiable criterion
 - [ ] Another criterion
 ```
@@ -83,7 +83,7 @@ Each story should be small enough to implement in one focused coding session.
 **Guidelines:**
 - Lower priority numbers = higher priority. Build foundations first.
 - Order stories so earlier ones enable later ones (consider dependencies).
-- Acceptance criteria must be verifiable, not vague. "Works correctly" is bad. "Button shows confirmation dialog before deleting" is good.
+- Steps must be verifiable, not vague. "Works correctly" is bad. "Button shows confirmation dialog before deleting" is good.
 - Include quality stories for tests and documentation as needed.
 
 ### 4. Functional Requirements
@@ -147,39 +147,39 @@ Add priority levels to tasks so users can focus on what matters most. Tasks can 
 
 ## User Stories
 
-### US-001: Add priority field to database
+### CCS-001: Add priority field to database
 **Priority:** 1
 **Description:** As a developer, I need to store task priority so it persists across sessions.
 
-**Acceptance Criteria:**
+**Steps:**
 - [ ] Add priority column to tasks table: 'high' | 'medium' | 'low' (default 'medium')
 - [ ] Generate and run migration successfully
 - [ ] Typecheck passes
 
-### US-002: Display priority indicator on task cards
+### CCS-002: Display priority indicator on task cards
 **Priority:** 2
 **Description:** As a user, I want to see task priority at a glance so I know what needs attention first.
 
-**Acceptance Criteria:**
+**Steps:**
 - [ ] Each task card shows colored priority badge (red=high, yellow=medium, gray=low)
 - [ ] Priority visible without hovering or clicking
 - [ ] Typecheck passes
 
-### US-003: Add priority selector to task edit
+### CCS-003: Add priority selector to task edit
 **Priority:** 3
 **Description:** As a user, I want to change a task's priority when editing it.
 
-**Acceptance Criteria:**
+**Steps:**
 - [ ] Priority dropdown in task edit modal
 - [ ] Shows current priority as selected
 - [ ] Saves immediately on selection change
 - [ ] Typecheck passes
 
-### US-004: Filter tasks by priority
+### CCS-004: Filter tasks by priority
 **Priority:** 4
 **Description:** As a user, I want to filter the task list to see only high-priority items when I'm focused.
 
-**Acceptance Criteria:**
+**Steps:**
 - [ ] Filter dropdown with options: All | High | Medium | Low
 - [ ] Filter persists in URL params
 - [ ] Empty state message when no tasks match filter
@@ -226,7 +226,7 @@ Before saving the PRD, verify:
 - [ ] Asked clarifying questions with lettered options
 - [ ] Incorporated user's answers into the PRD
 - [ ] User stories are small, atomic, and specific
-- [ ] Acceptance criteria are verifiable (not vague)
+- [ ] Steps are verifiable (not vague)
 - [ ] Functional requirements are numbered and unambiguous
 - [ ] Non-goals section defines clear boundaries
 - [ ] Success metrics are specific and measurable

@@ -63,25 +63,25 @@ Specific, measurable objectives (bullet list).
 Each story needs:
 - **Title:** Short descriptive name
 - **Description:** "As a [user], I want [feature] so that [benefit]"
-- **Acceptance Criteria:** Verifiable checklist of what "done" means
+- **Steps:** Verifiable checklist of what "done" means
 
 **Format:**
 ```markdown
-### US-001: [Title]
+### CCS-001: [Title]
 **Priority:** 1
 **Description:** As a [user], I want [feature] so that [benefit].
 
-**Acceptance Criteria:**
+**Steps:**
 - [ ] Specific verifiable criterion
 - [ ] Another criterion
 ```
 
 **Editing Guidelines:**
-- **Preserve story IDs** - Keep existing US-XXX IDs when modifying stories.
+- **Preserve story IDs** - Keep existing CCS-XXX IDs when modifying stories.
 - **Add new stories** with the next available ID number.
 - **Update priorities** if story order needs to change.
 - Each story should be small enough to implement in one focused coding session.
-- Acceptance criteria must be verifiable, not vague. "Works correctly" is bad. "Button shows confirmation dialog before deleting" is good.
+- Steps must be verifiable, not vague. "Works correctly" is bad. "Button shows confirmation dialog before deleting" is good.
 
 ### 4. Functional Requirements
 Numbered list (FR-1, FR-2, etc.). Be explicit and unambiguous.
@@ -123,7 +123,7 @@ Before saving the edited PRD, verify:
 - [ ] Existing story IDs are preserved (not renumbered)
 - [ ] New stories use the next available ID
 - [ ] User stories are small, atomic, and specific
-- [ ] Acceptance criteria are verifiable (not vague)
+- [ ] Steps are verifiable (not vague)
 - [ ] Functional requirements are numbered and unambiguous
 - [ ] Non-goals updated if scope changed
 - [ ] Success metrics reviewed and updated if needed

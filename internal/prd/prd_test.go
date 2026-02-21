@@ -19,7 +19,7 @@ func TestLoadPRD(t *testing.T) {
 				"id": "US-001",
 				"title": "First Story",
 				"description": "Test description",
-				"acceptanceCriteria": ["AC1", "AC2"],
+				"steps": ["AC1", "AC2"],
 				"priority": 1,
 				"passes": false
 			}
@@ -82,7 +82,7 @@ func TestPRD_Save(t *testing.T) {
 				ID:                 "US-001",
 				Title:              "Test Story",
 				Description:        "Test",
-				AcceptanceCriteria: []string{"AC1"},
+				Steps: []string{"AC1"},
 				Priority:           1,
 				Passes:             true,
 			},
@@ -259,7 +259,7 @@ func TestUserStory_Fields(t *testing.T) {
 		ID:                 "US-TEST",
 		Title:              "Test Title",
 		Description:        "Test Description",
-		AcceptanceCriteria: []string{"AC1", "AC2", "AC3"},
+		Steps: []string{"AC1", "AC2", "AC3"},
 		Priority:           5,
 		Passes:             true,
 		InProgress:         false,
@@ -268,8 +268,8 @@ func TestUserStory_Fields(t *testing.T) {
 	if story.ID != "US-TEST" {
 		t.Errorf("expected ID 'US-TEST', got '%s'", story.ID)
 	}
-	if len(story.AcceptanceCriteria) != 3 {
-		t.Errorf("expected 3 acceptance criteria, got %d", len(story.AcceptanceCriteria))
+	if len(story.Steps) != 3 {
+		t.Errorf("expected 3 steps, got %d", len(story.Steps))
 	}
 }
 

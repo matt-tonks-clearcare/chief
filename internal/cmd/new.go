@@ -8,8 +8,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/minicodemonkey/chief/embed"
+	chiefcontext "github.com/minicodemonkey/chief/internal/context"
 	"github.com/minicodemonkey/chief/internal/prd"
 )
 
@@ -51,8 +53,18 @@ func RunNew(opts NewOptions) error {
 		return fmt.Errorf("PRD already exists at %s. Use 'chief edit %s' to modify it", prdMdPath, opts.Name)
 	}
 
-	// Get the init prompt with the PRD directory path
-	prompt := embed.GetInitPrompt(prdDir, opts.Context)
+	// Load automatic context files from ~/.claude/context/ and .chief/context/
+	fileContext, err := chiefcontext.LoadContextFiles(opts.BaseDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to load context files: %v\n", err)
+		fileContext = ""
+	}
+
+	// Combine file-based context with inline CLI context
+	combinedContext := buildCombinedContext(fileContext, opts.Context)
+
+	// Get the init prompt with combined context
+	prompt := embed.GetInitPrompt(prdDir, combinedContext)
 
 	// Launch interactive Claude session
 	fmt.Printf("Creating PRD in %s...\n", prdDir)
@@ -112,6 +124,18 @@ func RunConvertWithOptions(opts ConvertOptions) error {
 		Merge:  opts.Merge,
 		Force:  opts.Force,
 	})
+}
+
+// buildCombinedContext merges file-based and inline context into one string.
+func buildCombinedContext(fileContext, inlineContext string) string {
+	var parts []string
+	if fileContext != "" {
+		parts = append(parts, fileContext)
+	}
+	if inlineContext != "" {
+		parts = append(parts, inlineContext)
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 // isValidPRDName checks if the name contains only valid characters.

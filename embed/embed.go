@@ -22,9 +22,15 @@ var convertPromptTemplate string
 //go:embed detect_setup_prompt.txt
 var detectSetupPromptTemplate string
 
-// GetPrompt returns the agent prompt with the PRD path substituted.
-func GetPrompt(prdPath string) string {
-	return strings.ReplaceAll(promptTemplate, "{{PRD_PATH}}", prdPath)
+// GetPrompt returns the agent prompt with the PRD path and ticket prefix substituted.
+// If ticketPrefix is empty, the placeholder is replaced with "[Story ID]" so the
+// agent falls back to using the story ID in the commit message.
+func GetPrompt(prdPath, ticketPrefix string) string {
+	result := strings.ReplaceAll(promptTemplate, "{{PRD_PATH}}", prdPath)
+	if ticketPrefix == "" {
+		ticketPrefix = "[Story ID]"
+	}
+	return strings.ReplaceAll(result, "{{TICKET_PREFIX}}", ticketPrefix)
 }
 
 // GetInitPrompt returns the PRD generator prompt with the PRD directory and optional context substituted.

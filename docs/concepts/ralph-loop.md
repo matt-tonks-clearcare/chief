@@ -107,7 +107,7 @@ If a story has `inProgress: true`, Chief continues with that story instead of st
 
 Chief constructs a prompt that tells Claude exactly what to do. The prompt includes:
 
-- **The user story**: ID, title, description, and acceptance criteria
+- **The user story**: ID, title, description, and steps
 - **Instructions**: Read the PRD, pick the next story, implement it, run checks, commit
 - **Progress context**: Any patterns or learnings from `progress.md`
 

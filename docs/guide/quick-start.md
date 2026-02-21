@@ -59,7 +59,7 @@ cd your-project
 chief new
 ```
 
-This launches Claude Code with a preloaded prompt. Work with Claude to describe what you want to build—your project goals, user stories, and acceptance criteria. Claude will help structure your requirements and write the `prd.md` file.
+This launches Claude Code with a preloaded prompt. Work with Claude to describe what you want to build—your project goals, user stories, and steps. Claude will help structure your requirements and write the `prd.md` file.
 
 When you're done, type `/exit` to leave Claude Code. Chief then parses `prd.md` and generates `prd.json`:
 
@@ -93,7 +93,7 @@ The TUI shows:
 
 - **Tab Bar** — All your PRDs with status indicators
 - **Stories List** — User stories with completion status
-- **Story Details** — Current story's description and acceptance criteria
+- **Story Details** — Current story's description and steps
 - **Live Activity** — Real-time status updates from Claude
 - **Diff View** — Press `d` to see the commit diff for the selected story
 

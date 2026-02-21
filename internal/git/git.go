@@ -3,9 +3,12 @@ package git
 
 import (
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 )
+
+var ticketRe = regexp.MustCompile(`([A-Z]+-\d+)`)
 
 // GetCurrentBranch returns the current git branch name for a directory.
 func GetCurrentBranch(dir string) (string, error) {
@@ -148,12 +151,12 @@ func GetDiffStatsForCommit(dir, commitHash string) (string, error) {
 }
 
 // FindCommitForStory searches the git log for a commit whose subject line
-// matches the chief commit format "feat: <storyID> - <title>".
-// Both the story ID and title are required to avoid false positives from
-// previous PRD runs that may reuse the same story IDs.
+// matches the chief commit format "<ticketPrefix>: <title>".
+// The ticketPrefix is typically a Jira ticket (e.g. CCS-1234) extracted from
+// the branch name, or the story ID as a fallback.
 // Returns the commit hash if found, empty string otherwise.
-func FindCommitForStory(dir, storyID, title string) (string, error) {
-	cmd := exec.Command("git", "log", "--fixed-strings", "--grep=feat: "+storyID+" - "+title, "--format=%H", "-1")
+func FindCommitForStory(dir, ticketPrefix, title string) (string, error) {
+	cmd := exec.Command("git", "log", "--fixed-strings", "--grep="+ticketPrefix+": "+title, "--format=%H", "-1")
 	cmd.Dir = dir
 	output, err := cmd.Output()
 	if err != nil {
@@ -161,6 +164,12 @@ func FindCommitForStory(dir, storyID, title string) (string, error) {
 	}
 	hash := strings.TrimSpace(string(output))
 	return hash, nil
+}
+
+// ExtractTicketFromBranch extracts a Jira-style ticket (e.g. CCS-1234) from a branch name.
+// Returns empty string if no ticket pattern is found.
+func ExtractTicketFromBranch(branch string) string {
+	return ticketRe.FindString(branch)
 }
 
 // getMergeBase returns the merge base commit between two refs.

@@ -10,7 +10,7 @@ You are an autonomous coding agent working on a software project.
 4. Implement that single user story
 5. Run quality checks (e.g., typecheck, lint, test - use whatever your project requires)
 6. Update CLAUDE.md files if you discover reusable patterns (see below)
-7. If checks pass, commit ALL changes with message: `feat: [Story ID] - [Story Title]`
+7. If checks pass, commit ALL changes with message: `[Story ID]: [Story Title]`
 8. Update the PRD to set `passes: true` for the completed story
 9. Append your progress to `progress.txt`
 

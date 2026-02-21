@@ -455,11 +455,11 @@ func (a *App) renderDetailsPanel(width, height int) string {
 	content.WriteString(wrapText(story.Description, width-4))
 	content.WriteString("\n\n")
 
-	// Acceptance Criteria
-	content.WriteString(labelStyle.Render("Acceptance Criteria"))
+	// Steps
+	content.WriteString(labelStyle.Render("Steps"))
 	content.WriteString("\n")
-	for _, criterion := range story.AcceptanceCriteria {
-		wrapped := wrapText("• "+criterion, width-6)
+	for _, step := range story.Steps {
+		wrapped := wrapText("• "+step, width-6)
 		content.WriteString(wrapped)
 		content.WriteString("\n")
 	}

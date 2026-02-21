@@ -129,6 +129,32 @@ func TestAddChiefToGitignore(t *testing.T) {
 	})
 }
 
+func TestExtractTicketFromBranch(t *testing.T) {
+	tests := []struct {
+		branch   string
+		expected string
+	}{
+		{"feature/CCS-1234-add-login", "CCS-1234"},
+		{"CCS-1234", "CCS-1234"},
+		{"bugfix/CCS-99-fix-crash", "CCS-99"},
+		{"PROJ-42", "PROJ-42"},
+		{"feature/CCS-1234", "CCS-1234"},
+		{"main", ""},
+		{"develop", ""},
+		{"feature/no-ticket-here", ""},
+		{"feature/lowercase-123", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.branch, func(t *testing.T) {
+			result := ExtractTicketFromBranch(tt.branch)
+			if result != tt.expected {
+				t.Errorf("ExtractTicketFromBranch(%q) = %q, want %q", tt.branch, result, tt.expected)
+			}
+		})
+	}
+}
+
 func TestIsProtectedBranch(t *testing.T) {
 	tests := []struct {
 		branch   string

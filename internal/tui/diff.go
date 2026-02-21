@@ -15,10 +15,11 @@ type DiffViewer struct {
 	height     int
 	stats      string
 	baseDir    string
-	storyID    string // Story ID whose commit diff is being shown (empty = full branch diff)
-	noCommit   bool   // True when no commit was found for the selected story
-	err        error
-	loaded     bool
+	storyID      string // Story ID whose commit diff is being shown (empty = full branch diff)
+	ticketPrefix string // Ticket prefix extracted from branch (e.g. CCS-1234)
+	noCommit     bool   // True when no commit was found for the selected story
+	err          error
+	loaded       bool
 }
 
 // NewDiffViewer creates a new diff viewer.
@@ -46,14 +47,22 @@ func (d *DiffViewer) Load() {
 	d.loadDiff("", "")
 }
 
+// SetTicketPrefix sets the ticket prefix used for matching commit messages.
+func (d *DiffViewer) SetTicketPrefix(prefix string) {
+	d.ticketPrefix = prefix
+}
+
 // LoadForStory fetches the git diff for a specific story's commit.
 // If no commit is found, it shows a "not committed yet" message.
 func (d *DiffViewer) LoadForStory(storyID, title string) {
 	d.storyID = storyID
 
-	// Find the commit for this story (match both ID and title to avoid
-	// false positives from previous PRD runs with the same story IDs)
-	commitHash, err := git.FindCommitForStory(d.baseDir, storyID, title)
+	// Use ticket prefix from branch if available, otherwise fall back to story ID
+	prefix := d.ticketPrefix
+	if prefix == "" {
+		prefix = storyID
+	}
+	commitHash, err := git.FindCommitForStory(d.baseDir, prefix, title)
 	if err != nil || commitHash == "" {
 		d.noCommit = true
 		d.offset = 0

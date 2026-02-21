@@ -88,7 +88,7 @@ Each story in the `userStories` array has the following fields:
 | `id` | `string` | Yes | — | Unique identifier (e.g., `US-001`). Appears in commit messages. |
 | `title` | `string` | Yes | — | Short, descriptive title. Keep under 50 characters. |
 | `description` | `string` | Yes | — | Full description. User story format recommended. |
-| `acceptanceCriteria` | `string[]` | Yes | — | List of requirements. Claude uses these to know when the story is done. |
+| `steps` | `string[]` | Yes | — | List of requirements. Claude uses these to know when the story is done. |
 | `priority` | `number` | Yes | — | Execution order. Lower number = higher priority. |
 | `passes` | `boolean` | Yes | `false` | Whether the story has been completed and verified. |
 | `inProgress` | `boolean` | Yes | `false` | Whether Claude is currently working on this story. |
@@ -104,7 +104,7 @@ Each story in the `userStories` array has the following fields:
       "id": "US-001",
       "title": "Basic Setup",
       "description": "As a developer, I want the project scaffolded so I can start building.",
-      "acceptanceCriteria": [
+      "steps": [
         "Project directory created",
         "Dependencies installed",
         "Dev server starts successfully"
@@ -175,9 +175,9 @@ Here's a complete `prd.json` with annotations explaining each part:
       // Description — user story format gives Claude clear context
       "description": "As a new user, I want to register an account so that I can access the application.",
 
-      // Acceptance criteria — Claude checks these off as it works
+      // Steps — Claude checks these off as it works
       // Each item should be specific and verifiable
-      "acceptanceCriteria": [
+      "steps": [
         "Registration form with email and password fields",
         "Email format validation",
         "Password minimum 8 characters",
@@ -198,7 +198,7 @@ Here's a complete `prd.json` with annotations explaining each part:
       "id": "US-002",
       "title": "User Login",
       "description": "As a registered user, I want to log in so that I can access my account.",
-      "acceptanceCriteria": [
+      "steps": [
         "Login form with email and password fields",
         "Error message for invalid credentials",
         "JWT token issued on success",
@@ -213,7 +213,7 @@ Here's a complete `prd.json` with annotations explaining each part:
       "id": "US-003",
       "title": "Password Reset",
       "description": "As a user, I want to reset my password so that I can recover my account.",
-      "acceptanceCriteria": [
+      "steps": [
         "\"Forgot password\" link on login page",
         "Email with reset link sent to user",
         "Reset token expires after 1 hour",
@@ -233,13 +233,13 @@ JSON doesn't support comments. The annotations above are for illustration only �
 
 ## Best Practices
 
-### Write Specific Acceptance Criteria
+### Write Specific Steps
 
 Each criterion should be concrete and verifiable. Claude uses these to determine what to build and when the story is done.
 
 ```json
 // ✓ Good — specific and testable
-"acceptanceCriteria": [
+"steps": [
   "Login form with email and password fields",
   "Error message shown for invalid credentials",
   "JWT token stored in httpOnly cookie on success",
@@ -247,7 +247,7 @@ Each criterion should be concrete and verifiable. Claude uses these to determine
 ]
 
 // ✗ Bad — vague and subjective
-"acceptanceCriteria": [
+"steps": [
   "Nice login page",
   "Good error handling",
   "Secure authentication"
@@ -256,13 +256,13 @@ Each criterion should be concrete and verifiable. Claude uses these to determine
 
 ### Keep Stories Small
 
-A story should represent one logical piece of work. If a story has more than 5–7 acceptance criteria, consider splitting it into multiple stories.
+A story should represent one logical piece of work. If a story has more than 5–7 steps, consider splitting it into multiple stories.
 
 **Too large:**
 ```json
 {
   "title": "Complete Authentication System",
-  "acceptanceCriteria": [
+  "steps": [
     "Registration form", "Login form", "Password reset",
     "Email verification", "OAuth integration", "Session management",
     "Rate limiting", "Account lockout", "Audit logging"
@@ -308,7 +308,7 @@ The more context you provide in `prd.md`, the better the output. Include:
 - What frameworks and tools the project uses
 - Where to find existing patterns to follow
 - Any constraints or conventions
-- What "done" looks like beyond acceptance criteria
+- What "done" looks like beyond steps
 
 ### Use `chief new` to Get Started
 

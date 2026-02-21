@@ -313,7 +313,7 @@ Each PRD lives in its own directory with all related files. The directory name i
       "id": "US-001",
       "title": "Story title",
       "description": "As a..., I need... so that...",
-      "acceptanceCriteria": [
+      "steps": [
         "Criterion 1",
         "Criterion 2",
         "Typecheck passes"
@@ -1053,7 +1053,7 @@ Read the PRD from `.chief/prds/<name>/prd.md`.
       "id": "US-001",
       "title": "[Short title]",
       "description": "[Full story: As a..., I need..., so that...]",
-      "acceptanceCriteria": ["Criterion 1", "Criterion 2", "Typecheck passes"],
+      "steps": ["Criterion 1", "Criterion 2", "Typecheck passes"],
       "priority": 1,
       "passes": false
     }

@@ -7,16 +7,26 @@ import (
 
 func TestGetPrompt(t *testing.T) {
 	prdPath := "/path/to/prd.json"
-	prompt := GetPrompt(prdPath)
+	prompt := GetPrompt(prdPath, "CCS-1234")
 
 	// Verify the PRD path placeholder was substituted
 	if strings.Contains(prompt, "{{PRD_PATH}}") {
 		t.Error("Expected {{PRD_PATH}} to be substituted")
 	}
 
+	// Verify the ticket prefix placeholder was substituted
+	if strings.Contains(prompt, "{{TICKET_PREFIX}}") {
+		t.Error("Expected {{TICKET_PREFIX}} to be substituted")
+	}
+
 	// Verify the PRD path appears in the prompt
 	if !strings.Contains(prompt, prdPath) {
 		t.Errorf("Expected prompt to contain PRD path %q", prdPath)
+	}
+
+	// Verify the ticket prefix appears in the prompt
+	if !strings.Contains(prompt, "CCS-1234") {
+		t.Error("Expected prompt to contain ticket prefix CCS-1234")
 	}
 
 	// Verify the prompt contains key instructions
@@ -30,6 +40,18 @@ func TestGetPrompt(t *testing.T) {
 
 	if !strings.Contains(prompt, "passes: true") {
 		t.Error("Expected prompt to contain passes: true instruction")
+	}
+}
+
+func TestGetPromptFallback(t *testing.T) {
+	prompt := GetPrompt("/path/to/prd.json", "")
+
+	// When no ticket prefix is provided, should fall back to [Story ID]
+	if strings.Contains(prompt, "{{TICKET_PREFIX}}") {
+		t.Error("Expected {{TICKET_PREFIX}} to be substituted")
+	}
+	if !strings.Contains(prompt, "[Story ID]") {
+		t.Error("Expected prompt to contain [Story ID] fallback")
 	}
 }
 
@@ -63,6 +85,10 @@ func TestGetConvertPrompt(t *testing.T) {
 
 	if !strings.Contains(prompt, "userStories") {
 		t.Error("Expected prompt to describe userStories structure")
+	}
+
+	if !strings.Contains(prompt, `"steps"`) {
+		t.Error("Expected prompt to describe steps structure")
 	}
 
 	if !strings.Contains(prompt, `"passes": false`) {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/minicodemonkey/chief/embed"
 	"github.com/minicodemonkey/chief/internal/config"
+	"github.com/minicodemonkey/chief/internal/git"
 	"github.com/minicodemonkey/chief/internal/prd"
 )
 
@@ -222,10 +223,13 @@ func (m *Manager) Start(name string) error {
 		return fmt.Errorf("PRD %s is already running", name)
 	}
 
+	// Extract ticket prefix from the branch name (e.g. CCS-1234 from feature/CCS-1234-foo).
+	ticketPrefix := git.ExtractTicketFromBranch(instance.Branch)
+
 	// Create a new loop instance, using worktree-aware constructor if WorktreeDir is set.
 	// When no worktree is configured, run from the project root (baseDir) so that
 	// CLAUDE.md and other project-level files are visible to Claude.
-	prompt := embed.GetPrompt(instance.PRDPath)
+	prompt := embed.GetPrompt(instance.PRDPath, ticketPrefix)
 	workDir := instance.WorktreeDir
 	if workDir == "" {
 		m.mu.RLock()

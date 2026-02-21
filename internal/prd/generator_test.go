@@ -464,7 +464,7 @@ func TestLoadAndValidateConvertedPRD(t *testing.T) {
       "id": "US-001",
       "title": "First Story",
       "description": "Do something",
-      "acceptanceCriteria": ["It works"],
+      "steps": ["It works"],
       "priority": 1,
       "passes": false
     }
@@ -515,7 +515,7 @@ func TestLoadAndValidateConvertedPRD(t *testing.T) {
 		content := `{
   "project": "",
   "description": "A test",
-  "userStories": [{"id": "US-001", "title": "Story", "description": "Desc", "acceptanceCriteria": [], "priority": 1, "passes": false}]
+  "userStories": [{"id": "US-001", "title": "Story", "description": "Desc", "steps": [], "priority": 1, "passes": false}]
 }`
 		if err := os.WriteFile(prdJsonPath, []byte(content), 0644); err != nil {
 			t.Fatalf("Failed to write test file: %v", err)
@@ -562,7 +562,7 @@ func TestLoadAndValidateConvertedPRD(t *testing.T) {
       "id": "US-001",
       "title": "Story with \"quotes\"",
       "description": "Click the \"Submit\" button",
-      "acceptanceCriteria": ["User sees \"Success\" message", "Button says \"OK\""],
+      "steps": ["User sees \"Success\" message", "Button says \"OK\""],
       "priority": 1,
       "passes": false
     }
@@ -583,8 +583,8 @@ func TestLoadAndValidateConvertedPRD(t *testing.T) {
 		if prd.UserStories[0].Title != `Story with "quotes"` {
 			t.Errorf("Expected title with unescaped quotes, got %q", prd.UserStories[0].Title)
 		}
-		if prd.UserStories[0].AcceptanceCriteria[0] != `User sees "Success" message` {
-			t.Errorf("Expected acceptance criteria with unescaped quotes, got %q", prd.UserStories[0].AcceptanceCriteria[0])
+		if prd.UserStories[0].Steps[0] != `User sees "Success" message` {
+			t.Errorf("Expected steps with unescaped quotes, got %q", prd.UserStories[0].Steps[0])
 		}
 	})
 }
@@ -606,7 +606,7 @@ A sample project for testing.
 ### US-001: Setup Project
 As a developer, I need a properly structured project.
 
-**Acceptance Criteria:**
+**Steps:**
 - Create project structure
 - Add dependencies
 - Verify build works
@@ -614,7 +614,7 @@ As a developer, I need a properly structured project.
 ### US-002: Add Feature
 As a user, I want a new feature.
 
-**Acceptance Criteria:**
+**Steps:**
 - Feature works correctly
 - Tests pass
 `
